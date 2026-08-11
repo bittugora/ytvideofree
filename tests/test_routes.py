@@ -1,0 +1,331 @@
+import json
+from unittest.mock import patch
+
+from django.test import TestCase
+
+
+class RouteTests(TestCase):
+    def test_healthz(self):
+        response = self.client.get("/healthz")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok"})
+
+    def test_home_page_renders(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "ytvideofree")
+        self.assertContains(response, 'id="paste-button"')
+        self.assertContains(response, 'id="install-banner"')
+        self.assertContains(response, 'id="theme-toggle"')
+        self.assertContains(response, 'id="download-thumbnail"')
+        self.assertContains(response, 'property="og:image"')
+
+    def test_blog_feed_renders_published_posts(self):
+        from django.contrib.auth import get_user_model
+        from django.utils import timezone
+
+        from blog.models import Post
+
+        user = get_user_model().objects.create_user(username="feedauth", password="pass")
+        Post.objects.create(
+            title="Feed me",
+            slug="feed-me",
+            author=user,
+            body="RSS body.",
+            publish=timezone.now(),
+            status=Post.Status.PUBLISHED,
+        )
+
+        response = self.client.get("/blog/feed/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/rss+xml; charset=utf-8")
+        self.assertContains(response, "Feed me")
+        self.assertContains(response, "RSS body.")
+
+    def test_robots_txt(self):
+        response = self.client.get("/robots.txt")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/plain")
+        self.assertIn("Sitemap:", response.content.decode())
+
+    def test_sitemap_xml_lists_pages(self):
+        response = self.client.get("/sitemap.xml")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/xml")
+        self.assertIn("/blog/", response.content.decode())
+
+    def test_admin_redirects_without_trailing_slash(self):
+        response = self.client.get("/admin")
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response["Location"], "/admin/")
+
+    def test_admin_login_renders(self):
+        response = self.client.get("/admin/login/")
+        self.assertEqual(response.status_code, 200)
+
+    def test_rate_limit_config_is_editable_from_admin(self):
+        from django.contrib.auth import get_user_model
+
+        from downloader.models import RateLimitConfig
+
+        if not RateLimitConfig.objects.exists():
+            RateLimitConfig.objects.create()
+
+        user = get_user_model().objects.create_superuser(
+            username="admincheck", email="", password="pass"
+        )
+        self.client.force_login(user)
+        response = self.client.get("/admin/downloader/ratelimitconfig/")
+
+        self.assertEqual(response.status_code, 200)
+        # Every admin-configurable setting is editable inline on the list page
+        # (Django names inline fields form-0-<field>).
+        for field in (
+            "enabled",
+            "max_concurrent_requests",
+            "max_requests_per_window",
+            "window_seconds",
+            "max_downloads_per_day",
+        ):
+            self.assertContains(response, f'name="form-0-{field}"')
+
+    def test_amp_page_renders(self):
+        response = self.client.get("/amp")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "amp-boilerplate")
+        self.assertContains(response, "canonical")
+
+    def test_service_worker_served_at_root_scope(self):
+        response = self.client.get("/sw.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/javascript")
+        self.assertEqual(response["Service-Worker-Allowed"], "/")
+
+    def test_blog_list_and_detail_render(self):
+        from django.contrib.auth import get_user_model
+        from django.utils import timezone
+
+        from blog.models import Post, Tag
+
+        user = get_user_model().objects.create_user(username="author", password="pass")
+        post = Post.objects.create(
+            title="Hello world",
+            slug="hello-world",
+            author=user,
+            body="First post.",
+            publish=timezone.now(),
+            status=Post.Status.PUBLISHED,
+        )
+        post.tags.set([Tag.objects.create(name="transcript")])
+
+        list_response = self.client.get("/blog/")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertContains(list_response, "Hello world")
+
+        detail_response = self.client.get(f"/blog/post/{post.slug}/")
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "First post.")
+
+        tag_response = self.client.get("/blog/tag/transcript/")
+        self.assertEqual(tag_response.status_code, 200)
+        self.assertContains(tag_response, "Hello world")
+
+        empty_tag_response = self.client.get("/blog/tag/nonexistent/")
+        self.assertEqual(empty_tag_response.status_code, 200)
+        self.assertContains(empty_tag_response, "No blog posts yet")
+
+    def test_site_pages_render(self):
+        for path in ("/docs", "/terms", "/privacy", "/copyright"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "ytvideofree")
+
+    def test_unknown_page_renders_404_template(self):
+        response = self.client.get("/no-such-page")
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(response, "Page not found", status_code=404)
+
+    def test_api_inspect_rejects_invalid_url(self):
+        response = self.client.post(
+            "/api/inspect",
+            data=json.dumps({"url": "https://example.com/watch?v=psVUIguZAQg"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("detail", response.json())
+
+    def test_api_inspect_rejects_invalid_payload(self):
+        response = self.client.post(
+            "/api/inspect",
+            data=json.dumps({"url": "short"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_api_thumbnail_returns_jpeg_attachment(self):
+        with patch("downloader.views.fetch_thumbnail", return_value=(b"\xff\xd8\xff\xe0jpeg", "image/jpeg")):
+            response = self.client.post(
+                "/api/thumbnail",
+                data=json.dumps({"url": "https://www.youtube.com/watch?v=psVUIguZAQg"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/jpeg")
+        self.assertIn("attachment", response["Content-Disposition"])
+        self.assertIn("psVUIguZAQg-thumbnail.jpg", response["Content-Disposition"])
+        self.assertEqual(response.content, b"\xff\xd8\xff\xe0jpeg")
+
+    def test_api_thumbnail_rejects_invalid_url(self):
+        response = self.client.post(
+            "/api/thumbnail",
+            data=json.dumps({"url": "https://example.com/watch?v=psVUIguZAQg"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_api_download_maps_media_errors_for_video_and_audio(self):
+        for mode in ("video", "audio"):
+            with self.subTest(mode=mode):
+                with patch("downloader.views.download_media", side_effect=ValueError("conversion failed")):
+                    response = self.client.post(
+                        "/api/download",
+                        data=json.dumps(
+                            {
+                                "url": "https://www.youtube.com/watch?v=psVUIguZAQg",
+                                "mode": mode,
+                            }
+                        ),
+                        content_type="application/json",
+                    )
+
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(response.json()["detail"], "conversion failed")
+
+    def test_api_download_rejects_bad_mode(self):
+        response = self.client.post(
+            "/api/download",
+            data=json.dumps(
+                {
+                    "url": "https://www.youtube.com/watch?v=psVUIguZAQg",
+                    "mode": "gif",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_api_transcript_returns_service_payload(self):
+        expected = {"text": "hello", "srt": "1\nhello", "segments": []}
+
+        with patch("downloader.views.require_video_id", return_value="psVUIguZAQg"), patch(
+            "downloader.views.get_transcript", return_value=expected
+        ):
+            response = self.client.post(
+                "/api/transcript",
+                data=json.dumps({"url": "https://www.youtube.com/watch?v=psVUIguZAQg"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), expected)
+
+    def test_thumbnail_button_is_present(self):
+        response = self.client.get("/")
+        self.assertContains(response, "Download Thumbnail")
+
+
+class PerLinkDailyLimitTests(TestCase):
+    """The daily download limit counts links, not files: video, audio, and
+    transcript downloads for one link consume a single unit."""
+
+    def setUp(self):
+        from downloader.models import RateLimitConfig
+
+        RateLimitConfig.objects.create(
+            enabled=True,
+            max_concurrent_requests=1,
+            max_requests_per_window=100,
+            window_seconds=60,
+            max_downloads_per_day=1,
+        )
+
+    def test_video_and_transcript_for_one_link_counts_once(self):
+        from downloader.models import ClientUsage
+
+        # Video download for link A (fails after counting the link).
+        with patch("downloader.views.download_media", side_effect=ValueError("conversion failed")):
+            response = self.client.post(
+                "/api/download",
+                data=json.dumps(
+                    {"url": "https://www.youtube.com/watch?v=psVUIguZAQg", "mode": "video"}
+                ),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 422)
+
+        # Transcript download for the SAME link is still allowed.
+        with patch("downloader.views.require_video_id", return_value="psVUIguZAQg"), patch(
+            "downloader.views.get_transcript",
+            return_value={"text": "hello", "srt": "1\nhello", "language_code": "en"},
+        ):
+            response = self.client.post(
+                "/api/transcript/download",
+                data=json.dumps({"url": "https://www.youtube.com/watch?v=psVUIguZAQg", "format": "txt"}),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 200)
+
+        usage = ClientUsage.objects.get(key="ip:127.0.0.1")
+        self.assertEqual(usage.day_downloads, 1)
+        self.assertEqual(usage.downloaded_links, ["psVUIguZAQg"])
+
+    def test_new_link_is_blocked_after_daily_limit(self):
+        with patch("downloader.views.download_media", side_effect=ValueError("conversion failed")):
+            response = self.client.post(
+                "/api/download",
+                data=json.dumps(
+                    {"url": "https://www.youtube.com/watch?v=psVUIguZAQg", "mode": "video"}
+                ),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 422)
+
+        with patch("downloader.views.download_media", side_effect=ValueError("conversion failed")):
+            response = self.client.post(
+                "/api/download",
+                data=json.dumps(
+                    {"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "mode": "video"}
+                ),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 429)
+        self.assertIn("Daily download limit", response.json()["detail"])
+
+    def test_api_transcript_download_returns_txt_attachment_named_after_title(self):
+        with patch("downloader.views.require_video_id", return_value="psVUIguZAQg"), patch(
+            "downloader.views.get_transcript",
+            return_value={"text": "hello world", "srt": "1\nhello world", "language_code": "en"},
+        ):
+            response = self.client.post(
+                "/api/transcript/download",
+                data=json.dumps(
+                    {
+                        "url": "https://www.youtube.com/watch?v=psVUIguZAQg",
+                        "format": "txt",
+                        "title": "My Awesome Video",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/plain; charset=utf-8")
+        self.assertIn("attachment", response["Content-Disposition"])
+        self.assertIn("My Awesome Video.txt", response["Content-Disposition"])
+        self.assertEqual(response.content.decode(), "hello world")

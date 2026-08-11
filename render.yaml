@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: ytvideofree
+    env: docker
+    plan: starter
+    healthCheckPath: /healthz
+    autoDeploy: true

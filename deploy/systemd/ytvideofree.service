@@ -1,0 +1,24 @@
+[Unit]
+Description=ytvideofree Django application
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=ytvideofree
+Group=ytvideofree
+WorkingDirectory=/var/www/ytvideofree
+EnvironmentFile=/etc/ytvideofree/ytvideofree.env
+ExecStartPre=/var/www/ytvideofree/.venv/bin/python manage.py migrate --noinput
+ExecStart=/var/www/ytvideofree/.venv/bin/gunicorn ytvideofree.wsgi:application --bind 127.0.0.1:8000 --workers 2 --proxy-headers
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/ytvideofree /var/log/ytvideofree /tmp
+
+[Install]
+WantedBy=multi-user.target

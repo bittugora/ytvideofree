@@ -1,0 +1,80 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block page_title %}ytvideofree - YouTube Video, Audio, and Transcript Tool{% endblock %}</title>
+    <meta
+      name="description"
+      content="{% block page_description %}ytvideofree helps users download permitted YouTube videos, MP3 audio, and transcripts with format and quality controls.{% endblock %}"
+    >
+    <meta name="theme-color" content="#0f766e">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="ytvideofree">
+    <link rel="manifest" href="{% static 'manifest.json' %}">
+    <link rel="icon" type="image/png" href="{% static 'icons/icon-192.png' %}">
+    <link rel="apple-touch-icon" href="{% static 'icons/icon-192.png' %}">
+    <link rel="canonical" href="{{ site_url }}{{ request.path }}">
+    <link rel="alternate" type="application/rss+xml" title="ytvideofree Blog" href="/blog/feed/">
+    <meta property="og:site_name" content="ytvideofree">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="{% block og_title %}ytvideofree - YouTube Video, Audio, and Transcript Tool{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}Download permitted YouTube videos, MP3 audio, and transcripts with format and quality controls.{% endblock %}">
+    <meta property="og:url" content="{{ site_url }}{{ request.path }}">
+    <meta property="og:image" content="{{ site_url }}{% static 'og-image.png' %}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{% block twitter_title %}ytvideofree - YouTube Video, Audio, and Transcript Tool{% endblock %}">
+    <meta name="twitter:description" content="{% block twitter_description %}Download permitted YouTube videos, MP3 audio, and transcripts with format and quality controls.{% endblock %}">
+    <meta name="twitter:image" content="{{ site_url }}{% static 'og-image.png' %}">
+    {% block head_extra %}{% endblock %}
+    <script>
+      // Apply the saved or system theme before first paint to avoid a flash.
+      (function () {
+        try {
+          var theme = localStorage.getItem("ytvideofree-theme");
+          if (theme !== "dark" && theme !== "light") {
+            theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          }
+          document.documentElement.dataset.theme = theme;
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="stylesheet" href="{% static 'styles.css' %}">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="ytvideofree home">
+        <span class="brand-mark">YF</span>
+        <span class="brand-copy">
+          <strong>ytvideofree</strong>
+          <small>Video, audio, transcript</small>
+        </span>
+      </a>
+      <nav aria-label="Site links">
+        <a href="/blog/">Blog</a>
+        <!-- <a href="/docs">API</a> -->
+        <a href="/terms">Terms</a>
+        <a href="/privacy">Privacy</a>
+        <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+        </button>
+      </nav>
+    </header>
+
+    {% block content %}{% endblock %}
+
+    <footer class="site-footer">
+      <span>© 2026 ytvideofree</span>
+      <a href="/blog/">Blog</a>
+      <a href="/copyright">Copyright</a>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block head_extra %}
+    <link rel="amphtml" href="/amp">
+{% endblock %}
+
+{% block content %}
+    <main class="workspace">
+      <section class="control-panel" aria-labelledby="tool-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">ytvideofree.com</p>
+            <h1 id="tool-title">Download or extract from a YouTube link</h1>
+          </div>
+          <span class="status-pill" id="status-pill"><i aria-hidden="true"></i>Ready</span>
+        </div>
+
+        <form id="lookup-form" class="lookup-form">
+          <label for="youtube-url">YouTube URL</label>
+          <div class="url-row">
+            <input
+              id="youtube-url"
+              name="url"
+              type="url"
+              inputmode="url"
+              placeholder="https://www.youtube.com/watch?v=..."
+              autocomplete="off"
+              required
+            >
+            <button type="button" id="paste-button" class="primary-button">
+              <span class="button-icon" aria-hidden="true"></span>
+              Paste
+            </button>
+          </div>
+          <p class="rights-note">
+            Paste a copied link or type it in — the video thumbnail appears automatically. Use this only for videos you own, have permission to save, or are otherwise allowed to download.
+          </p>
+        </form>
+
+        <div class="mode-switch" role="tablist" aria-label="Download mode">
+          <button class="mode-button is-active" type="button" data-mode="video" role="tab" aria-selected="true">
+            MP4 Video
+          </button>
+          <button class="mode-button" type="button" data-mode="audio" role="tab" aria-selected="false">
+            MP3 Audio
+          </button>
+          <button class="mode-button" type="button" data-mode="transcript" role="tab" aria-selected="false">
+            Transcript
+          </button>
+        </div>
+
+        <div class="mode-panels">
+          <section class="mode-panel is-active" id="video-panel" aria-label="Video download options">
+            <div class="field-grid">
+              <label>
+                Video quality
+                <select id="video-quality">
+                  <option value="best">Best available</option>
+                  <option value="2160p">2160p</option>
+                  <option value="1440p">1440p</option>
+                  <option value="1080p">1080p</option>
+                  <option value="720p">720p</option>
+                  <option value="480p">480p</option>
+                  <option value="360p">360p</option>
+                </select>
+              </label>
+              <button type="button" class="action-button" id="download-video">
+                Download MP4
+              </button>
+            </div>
+          </section>
+
+          <section class="mode-panel" id="audio-panel" aria-label="Audio download options">
+            <div class="field-grid">
+              <label>
+                MP3 quality
+                <select id="audio-quality">
+                  <option value="128">128 kbps</option>
+                  <option value="192" selected>192 kbps</option>
+                  <option value="256">256 kbps</option>
+                  <option value="320">320 kbps</option>
+                </select>
+              </label>
+              <button type="button" class="action-button" id="download-audio">
+                Download MP3
+              </button>
+            </div>
+          </section>
+
+          <section class="mode-panel" id="transcript-panel" aria-label="Transcript options">
+            <div class="field-grid transcript-grid">
+              <label>
+                Preferred language
+                <input id="language-list" type="text" value="en,en-US,en-GB" spellcheck="false">
+              </label>
+              <label>
+                Translate to
+                <input id="translate-to" type="text" placeholder="Optional, e.g. es">
+              </label>
+              <button type="button" class="action-button" id="load-transcript">
+                Get Transcript
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <div class="message-area" id="message-area" role="status" aria-live="polite"></div>
+      </section>
+
+      <aside class="result-panel" aria-labelledby="result-title">
+        <div class="empty-state" id="empty-state">
+          <div class="media-placeholder" aria-hidden="true">
+            <span></span>
+          </div>
+          <h2 id="result-title">Paste a link to start</h2>
+          <p>Your result will appear here.</p>
+        </div>
+
+        <section class="video-result is-hidden" id="video-result" aria-label="Video details">
+          <img id="thumbnail" alt="" loading="lazy">
+          <div class="thumb-actions">
+            <button type="button" class="secondary-button" id="download-thumbnail">
+              Download Thumbnail
+            </button>
+          </div>
+          <div class="result-copy">
+            <p class="eyebrow" id="channel-name"></p>
+            <h2 id="video-title"></h2>
+            <dl class="meta-list">
+              <div>
+                <dt>Duration</dt>
+                <dd id="duration-label"></dd>
+              </div>
+              <div>
+                <dt>Uploaded</dt>
+                <dd id="upload-date"></dd>
+              </div>
+              <div>
+                <dt>Views</dt>
+                <dd id="view-count"></dd>
+              </div>
+            </dl>
+          </div>
+        </section>
+
+        <section class="transcript-result is-hidden" id="transcript-result" aria-label="Transcript result">
+          <div class="transcript-toolbar">
+            <div>
+              <p class="eyebrow" id="transcript-language">Transcript</p>
+              <h2>Text output</h2>
+            </div>
+            <div class="toolbar-actions">
+              <button type="button" class="secondary-button" id="copy-transcript">Copy</button>
+              <button type="button" class="secondary-button" id="download-txt">TXT</button>
+              <button type="button" class="secondary-button" id="download-srt">SRT</button>
+            </div>
+          </div>
+          <textarea id="transcript-text" spellcheck="false"></textarea>
+        </section>
+      </aside>
+    </main>
+
+    <div class="install-banner is-hidden" id="install-banner" role="region" aria-label="Install app">
+      <div class="install-copy">
+        <strong>Install ytvideofree</strong>
+        <span id="install-hint">Add it to your home screen for one-tap access.</span>
+      </div>
+      <div class="install-actions">
+        <button type="button" class="secondary-button" id="install-dismiss">Not now</button>
+        <button type="button" class="primary-button" id="install-app">Install</button>
+      </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{% static 'app.js' %}" defer></script>
+{% endblock %}

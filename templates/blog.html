@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block page_title %}{% if active_tag %}Posts tagged “{{ active_tag }}”{% else %}Blog{% endif %} - ytvideofree{% endblock %}
+
+{% block content %}
+    <main class="content-page">
+      <p class="eyebrow">ytvideofree.com</p>
+      <h1>{% if active_tag %}Posts tagged “{{ active_tag }}”{% else %}Blog{% endif %}</h1>
+      <p class="page-intro">
+        {% if active_tag %}
+          Showing posts tagged “{{ active_tag }}”. <a class="blog-link" href="/blog/">← See all posts</a>
+        {% else %}
+          Guides and notes about downloading, converting, and working with YouTube media.
+        {% endif %}
+      </p>
+      <p class="page-intro"><a class="blog-link" href="/blog/feed/">Subscribe to the RSS feed</a></p>
+
+      {% for post in post_list %}
+        <article class="content-section blog-entry">
+          {% if post.image %}
+            <img class="blog-image" src="{{ post.image.url }}" alt="" loading="lazy">
+          {% endif %}
+          <p class="blog-meta">{{ post.publish|date:"F j, Y" }}</p>
+          <h2><a class="blog-link" href="{{ post.get_absolute_url }}">{{ post.title }}</a></h2>
+          {% if post.tags.all %}
+            <div class="tag-list">
+              {% for tag in post.tags.all %}
+                <a class="tag-chip" href="{% url 'blog_tag' tag=tag.name %}">{{ tag.name }}</a>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <p>{{ post.body|truncatewords:40 }}</p>
+        </article>
+      {% empty %}
+        <section class="content-section">
+          <p>No blog posts yet — check back soon.</p>
+        </section>
+      {% endfor %}
+
+      {% if is_paginated %}
+        <nav class="pagination" aria-label="Blog pages">
+          {% if page_obj.has_previous %}
+            <a class="page-item" href="?page={{ page_obj.previous_page_number }}">← Newer</a>
+          {% endif %}
+          <span class="page-current">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+          {% if page_obj.has_next %}
+            <a class="page-item" href="?page={{ page_obj.next_page_number }}">Older →</a>
+          {% endif %}
+        </nav>
+      {% endif %}
+    </main>
+{% endblock %}

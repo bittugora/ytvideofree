@@ -1,0 +1,14 @@
+.git
+.venv
+__pycache__
+*.pyc
+.env
+downloads
+logs
+staticfiles
+ffmpeg
+node_modules
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.docker-tmp

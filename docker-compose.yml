@@ -1,0 +1,10 @@
+services:
+  ytvideofree:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DJANGO_DEBUG: "0"
+      DJANGO_SECRET_KEY: change-me
+      YTTAKEN_OUTPUT_DIR: /tmp
+    restart: unless-stopped

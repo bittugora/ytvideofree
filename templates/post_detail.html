@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block page_title %}{{ post.title }} - ytvideofree{% endblock %}
+{% block og_title %}{{ post.title }}{% endblock %}
+{% block og_description %}{{ post.body|truncatewords:30 }}{% endblock %}
+{% block twitter_title %}{{ post.title }}{% endblock %}
+{% block twitter_description %}{{ post.body|truncatewords:30 }}{% endblock %}
+
+{% block content %}
+    <main class="content-page">
+      <p class="eyebrow"><a class="blog-link" href="/blog/">Blog</a> · ytvideofree.com</p>
+      <h1>{{ post.title }}</h1>
+      <p class="blog-meta">
+        {{ post.publish|date:"F j, Y" }}
+        {% if post.author %} · {{ post.author.get_full_name|default:post.author.username }}{% endif %}
+      </p>
+
+      {% if post.image %}
+        <img class="blog-image blog-image-hero" src="{{ post.image.url }}" alt="">
+      {% endif %}
+
+      {% if post.tags.all %}
+        <div class="tag-list">
+          {% for tag in post.tags.all %}
+            <a class="tag-chip" href="{% url 'blog_tag' tag=tag.name %}">{{ tag.name }}</a>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="blog-body">{{ post.body|linebreaks }}</div>
+
+      <p><a class="blog-link" href="/blog/">← Back to blog</a></p>
+    </main>
+{% endblock %}
