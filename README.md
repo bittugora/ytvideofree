@@ -51,7 +51,7 @@ requirements.txt
 
 - Python 3.12+ (3.10+ works for Django 5)
 - FFmpeg (for MP4 merging and MP3 conversion)
-- Node.js (optional, improves yt-dlp extraction)
+- Node.js ≥ 22 (optional, improves yt-dlp extraction; the app auto-downloads it if missing)
 
 ### Setup
 
@@ -161,8 +161,8 @@ abuse. Rate-limit bookkeeping failures never block the feature itself.
 | `YTVIDEOFREE_NODE_LOCATION` | auto-detected | Path to node binary |
 | `YTVIDEOFREE_BUN_LOCATION` | auto-detected | Path to bun binary |
 | `YTVIDEOFREE_QUICKJS_LOCATION` | auto-detected | Path to quickjs binary |
-| `YTVIDEOFREE_AUTO_RUNTIME` | `1` | Auto-download a standalone Node.js binary when no JS runtime is installed |
-| `YTVIDEOFREE_NODE_VERSION` | `v22.14.0` | Node.js version for the auto-downloaded runtime |
+| `YTVIDEOFREE_AUTO_RUNTIME` | `1` | Auto-download a standalone Node.js binary when no usable JS runtime exists |
+| `YTVIDEOFREE_NODE_VERSION` | `v22.14.0` | Node.js version for the auto-downloaded runtime (must be ≥ 22 for yt-dlp's solver) |
 | `YTVIDEOFREE_RUNTIME_DIR` | `.cache/runtimes` | Where the auto-downloaded runtime is stored |
 | `YTVIDEOFREE_COOKIES_FILE` | (none) | yt-dlp cookies file path |
 
@@ -177,10 +177,11 @@ default, so this app:
    with `YTVIDEOFREE_JS_RUNTIMES` and the per-runtime location vars above) and
    enables every runtime it finds.
 2. **Auto-downloads a bundled Node.js** when the server has no JS runtime at
-   all (bare VPS images like Hostinger PVS often ship without one), so the
-   PO-token solver works out of the box. Disable with
-   `YTVIDEOFREE_AUTO_RUNTIME=0`; the binary is cached under
-   `YTVIDEOFREE_RUNTIME_DIR`.
+   all, *or* the installed one is too old — yt-dlp silently ignores runtimes
+   below its minimum (Node < 22, Bun < 1.2.11, Deno < 2.3.0), so e.g. a VPS
+   with Node 18 still fails the bot check. The bundled Node (≥ 22) replaces
+   the too-old runtime automatically. Disable with `YTVIDEOFREE_AUTO_RUNTIME=0`;
+   the binary is cached under `YTVIDEOFREE_RUNTIME_DIR`.
 3. **Retries with cookie-free fallback clients** (`tv_downgraded`,
    `android_vr`) when YouTube still answers with the bot check — these old
    JS-less clients often work from flagged datacenter IPs without cookies.
@@ -299,7 +300,9 @@ If the app runs locally but requests fail on the VPS, the usual causes are:
    flags if you run gunicorn yourself. The OpenLiteSpeed proxy's “Initial
    Request Timeout” must stay well above gunicorn's (the notes use 1200).
 2. **Missing JS runtime / ffmpeg** — `apt install nodejs ffmpeg`, or rely on
-   the bundled Node.js auto-download (see above).
+   the bundled Node.js auto-download (see above). Note: the installed Node must
+   be ≥ 22 — an older Node (e.g. 18, which ships with Ubuntu 24.04) is silently
+   ignored by yt-dlp; the app detects this and uses its bundled Node 22 instead.
 3. **YouTube bot check on the server's IP** — see the anti-bot section above;
    use the `/admin/status/` page to diagnose.
 4. **Missing `DJANGO_SECRET_KEY` / wrong `YTVIDEOFREE_ALLOWED_HOSTS`** — check

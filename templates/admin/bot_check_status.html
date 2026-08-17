@@ -13,9 +13,41 @@
   </p>
 
   <div class="module">
+    <h2>{% translate 'JavaScript runtimes' %}</h2>
+    {% if runtime_rows %}
+      <table style="width: 100%;">
+        <tr><th>Runtime</th><th>Version</th><th>Path</th><th>Status</th></tr>
+        {% for row in runtime_rows %}
+        <tr>
+          <td>{{ row.name }}</td>
+          <td>{% if row.version %}{{ row.version }}{% else %}—{% endif %}</td>
+          <td><code>{{ row.path }}</code></td>
+          <td>
+            {% if row.supported and row.in_use %}in use ✓
+            {% elif row.supported %}available
+            {% else %}<strong class="deletelink" style="padding-left:0;">too old — ignored by yt-dlp</strong>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% if too_old_installed %}
+      <p style="margin-top: 8px;">
+        At least one installed runtime is older than yt-dlp requires (Node.js ≥ 22,
+        Bun ≥ 1.2.11, Deno ≥ 2.3.0), so it is ignored. When no usable runtime
+        exists, the app downloads a bundled Node.js ({{ node_version }}) automatically.
+      </p>
+      {% endif %}
+    {% else %}
+      <p>
+        No JS runtime detected on this server. When extraction runs, the app
+        downloads a bundled Node.js ({{ node_version }}) automatically.
+      </p>
+    {% endif %}
+  </div>
+
+  <div class="module">
     <h2>{% translate 'Configuration' %}</h2>
     <table style="width: 100%;">
-      <tr><th>JavaScript runtimes detected</th><td>{{ runtimes_label }}</td></tr>
       <tr><th>Runtime download directory</th><td><code>{{ runtime_dir }}</code></td></tr>
       <tr>
         <th>Auto-download Node.js when none found</th>

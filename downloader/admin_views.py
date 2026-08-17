@@ -22,6 +22,8 @@ from .core.media import (
     AUTO_DOWNLOAD_RUNTIME,
     NODE_VERSION,
     RUNTIME_DIR,
+    _runtime_probe,
+    discover_runtime_binaries,
     ensure_js_runtime,
     find_ffmpeg,
     find_js_runtimes,
@@ -37,12 +39,34 @@ TEST_VIDEO_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
 
 def _status_context() -> dict[str, Any]:
     runtimes = find_js_runtimes()
+    detected = discover_runtime_binaries()
+
+    # Include auto-downloaded (bundled) runtimes in the display table too.
+    for name, config in runtimes.items():
+        path = config.get("path")
+        if path and detected.get(name, {}).get("path") != path:
+            version, supported = _runtime_probe(name, path)
+            detected[name] = {"path": path, "version": version, "supported": supported}
+
+    runtime_rows = [
+        {
+            "name": name,
+            "path": detail["path"],
+            "version": detail.get("version"),
+            "supported": detail["supported"],
+            "in_use": name in runtimes,
+        }
+        for name, detail in sorted(detected.items())
+    ]
+
     cookies_file = os.getenv("YTVIDEOFREE_COOKIES_FILE") or ""
     return {
         "title": "YouTube bot-check status",
         "test_video_url": TEST_VIDEO_URL,
         "runtimes": runtimes,
         "runtimes_label": ", ".join(sorted(runtimes)) or "none detected",
+        "runtime_rows": runtime_rows,
+        "too_old_installed": any(not d["supported"] for d in detected.values()),
         "runtime_dir": str(RUNTIME_DIR),
         "auto_download_runtime": AUTO_DOWNLOAD_RUNTIME,
         "node_version": NODE_VERSION,

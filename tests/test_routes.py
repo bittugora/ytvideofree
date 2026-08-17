@@ -77,11 +77,38 @@ class RouteTests(TestCase):
         )
         self.client.force_login(user)
 
-        response = self.client.get("/admin/status/")
+        # Keep the page hermetic: no real runtime probes or Node downloads.
+        with patch("downloader.admin_views.find_js_runtimes", return_value={}), patch(
+            "downloader.admin_views.discover_runtime_binaries", return_value={}
+        ), patch("downloader.admin_views.ensure_js_runtime", return_value=None):
+            response = self.client.get("/admin/status/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "YouTube bot-check status")
         self.assertContains(response, "YTVIDEOFREE_COOKIES_FILE")
         self.assertContains(response, "Run live bot-check test")
+
+    def test_admin_bot_check_status_page_warns_when_runtime_too_old(self):
+        from django.contrib.auth import get_user_model
+
+        user = get_user_model().objects.create_superuser(
+            username="statuscheck2", email="", password="pass"
+        )
+        self.client.force_login(user)
+
+        with patch("downloader.admin_views.find_js_runtimes", return_value={}), patch(
+            "downloader.admin_views.discover_runtime_binaries",
+            return_value={
+                "node": {
+                    "path": "/usr/bin/node",
+                    "version": "18.19.1",
+                    "supported": False,
+                }
+            },
+        ), patch("downloader.admin_views.ensure_js_runtime", return_value=None):
+            response = self.client.get("/admin/status/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "18.19.1")
+        self.assertContains(response, "too old")
 
     def test_admin_bot_check_status_live_test_reports_success(self):
         from unittest.mock import call

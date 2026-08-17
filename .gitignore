@@ -13,3 +13,6 @@ db.sqlite3
 *.part
 *.ytdl
 *.temp
+
+# Auto-downloaded Node.js runtime (yt-dlp bot-check solver)
+.cache/

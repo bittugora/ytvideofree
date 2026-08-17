@@ -139,10 +139,122 @@ def find_ffmpeg() -> str | None:
 JS_RUNTIMES = ("deno", "node", "bun", "quickjs")
 JS_RUNTIME_BINARIES = {"deno": "deno", "node": "node", "bun": "bun", "quickjs": "qjs"}
 
+# yt-dlp silently ignores JS runtimes older than its minimum supported version
+# (Node >= 22 for the EJS PO-token solver, Bun >= 1.2.11, Deno >= 2.3.0,
+# QuickJS >= 2023.12.9). Used only as a fallback when yt-dlp's own runtime
+# classes are unavailable; the primary gate uses those classes so it always
+# matches the installed yt-dlp version exactly.
+FALLBACK_MIN_RUNTIME_VERSIONS = {
+    "node": (22, 0, 0),
+    "bun": (1, 2, 11),
+    "deno": (2, 3, 0),
+    "quickjs": (2023, 12, 9),
+}
+
 # One lock shared by all workers so only a single Node download happens at a
 # time; the process-local flag avoids re-attempting a failed download forever.
 _runtime_lock = threading.Lock()
 _runtime_download_attempted = False
+
+# Probe results are cached per (runtime name, binary path) so requests do not
+# re-run subprocess version probes on every call.
+_runtime_probe_cache: dict[tuple[str, str], tuple[str | None, bool]] = {}
+
+
+def _parse_runtime_version(name: str, output: str) -> tuple[int, ...] | None:
+    """Parse a runtime's version from ``--version``/``--help`` output."""
+    patterns = {
+        "node": r"v?(\d+(?:\.\d+)*)",
+        "bun": r"(\d+(?:\.\d+)*)",
+        "deno": r"deno\s+v?(\d+(?:\.\d+)*)",
+        # QuickJS versions are dates (e.g. "2023-12-09" or "2024-01-13").
+        "quickjs": r"version\s+(\d+(?:[.-]\d+){1,2})",
+    }
+    match = re.search(patterns[name], output or "")
+    if not match:
+        return None
+    try:
+        return tuple(int(part) for part in re.split(r"[.-]", match.group(1)))
+    except ValueError:
+        return None
+
+
+def _runtime_version_from_binary(name: str, binary: str) -> tuple[int, ...] | None:
+    args = ["--help"] if name == "quickjs" else ["--version"]
+    try:
+        result = subprocess.run(
+            [binary, *args], capture_output=True, text=True, timeout=15, check=False
+        )
+    except Exception:
+        return None
+    return _parse_runtime_version(name, (result.stdout or "") + (result.stderr or ""))
+
+
+def _runtime_probe(name: str, binary: str) -> tuple[str | None, bool]:
+    """Return (version, supported) for a runtime binary, gated like yt-dlp.
+
+    yt-dlp silently skips runtimes older than its minimum supported version, so
+    an installed Node 18 looks "found" but is never used by the solver — the
+    app would stay bot-checked. Probe the binary with yt-dlp's own runtime
+    classes so the gate matches the installed yt-dlp exactly; fall back to a
+    hardcoded minimum-version table if that internal API is unavailable.
+    """
+    key = (name, binary)
+    if key in _runtime_probe_cache:
+        return _runtime_probe_cache[key]
+
+    version: str | None = None
+    supported = False
+    try:
+        from yt_dlp.globals import supported_js_runtimes
+
+        runtime_cls = supported_js_runtimes.value.get(name)
+        if runtime_cls is not None:
+            info = runtime_cls(path=binary).info
+            if info is not None:
+                version, supported = info.version, info.supported
+    except Exception:
+        logger.debug("yt-dlp runtime probe unavailable; using fallback version table.", exc_info=True)
+
+    if version is None:
+        parsed = _runtime_version_from_binary(name, binary)
+        minimum = FALLBACK_MIN_RUNTIME_VERSIONS.get(name)
+        supported = bool(parsed) and (minimum is None or parsed >= minimum)
+        version = ".".join(str(part) for part in parsed) if parsed else None
+
+    result = (version, supported)
+    _runtime_probe_cache[key] = result
+    return result
+
+
+def _runtime_is_supported(name: str, binary: str) -> bool:
+    return _runtime_probe(name, binary)[1]
+
+
+def _resolve_runtime_binary(name: str) -> str | None:
+    configured = os.getenv(f"YTVIDEOFREE_{name.upper()}_LOCATION")
+    if configured and Path(configured).exists():
+        return configured
+    binary = shutil.which(JS_RUNTIME_BINARIES[name])
+    if name == "quickjs" and not binary:
+        binary = shutil.which("quickjs")
+    return binary
+
+
+def discover_runtime_binaries() -> dict[str, dict[str, Any]]:
+    """Probe every candidate runtime binary (env-pinned or on PATH).
+
+    Unlike ``find_js_runtimes`` this also reports binaries that are too old for
+    yt-dlp's solver (``supported: False``), so the admin status page can explain
+    why the bundled Node.js is being used instead. Results are cached.
+    """
+    details: dict[str, dict[str, Any]] = {}
+    for name in JS_RUNTIMES:
+        binary = _resolve_runtime_binary(name)
+        if binary:
+            version, supported = _runtime_probe(name, binary)
+            details[name] = {"path": binary, "version": version, "supported": supported}
+    return details
 
 
 def _node_asset() -> tuple[str, str] | None:
@@ -164,7 +276,9 @@ def _node_asset() -> tuple[str, str] | None:
 
     if not arch:
         return None
-    return f"node-v{NODE_VERSION}-{os_name}-{arch}", ext
+    # NODE_VERSION defaults to "v22.14.0" (with a leading "v"); the official
+    # archives are named node-v22.14.0-..., so strip it to avoid "node-vv22...".
+    return f"node-v{NODE_VERSION.lstrip('v')}-{os_name}-{arch}", ext
 
 
 def _node_binary(directory: Path) -> Path:
@@ -200,13 +314,21 @@ def ensure_js_runtime() -> Path | None:
     node_dir = RUNTIME_DIR / basename
     node_bin = _node_binary(node_dir)
 
-    if node_bin.exists() and _node_works(node_bin):
+    if (
+        node_bin.exists()
+        and _node_works(node_bin)
+        and _runtime_is_supported("node", str(node_bin))
+    ):
         return node_bin
 
     with _runtime_lock:
         if _runtime_download_attempted:
             # Already tried this process (or another worker is doing it).
-            if node_bin.exists() and _node_works(node_bin):
+            if (
+                node_bin.exists()
+                and _node_works(node_bin)
+                and _runtime_is_supported("node", str(node_bin))
+            ):
                 return node_bin
             return None
         _runtime_download_attempted = True
@@ -237,9 +359,9 @@ def ensure_js_runtime() -> Path | None:
                 except OSError:
                     pass
 
-        if _node_works(node_bin):
+        if _node_works(node_bin) and _runtime_is_supported("node", str(node_bin)):
             return node_bin
-        logger.warning("Downloaded Node.js binary does not run; removing it.")
+        logger.warning("Downloaded Node.js binary does not run (or is too old); removing it.")
         shutil.rmtree(node_dir, ignore_errors=True)
         return None
 
@@ -251,15 +373,17 @@ def find_js_runtimes() -> dict[str, dict[str, str]]:
     solve YouTube's bot-check challenges and mint PO tokens; only "deno" is
     enabled by default, which most servers do not have. Without a usable
     runtime YouTube answers with "Sign in to confirm you're not a bot", so we
-    enable every runtime found on this machine. When none is installed, a
-    standalone Node.js binary is downloaded automatically (see
-    ``ensure_js_runtime``), so bare VPS images work out of the box.
+    enable every runtime found on this machine — but only versions yt-dlp's
+    solver actually accepts (e.g. Node >= 22). A too-old runtime is silently
+    ignored by yt-dlp, so when none is installed *or* the installed one is too
+    old, a standalone Node.js binary is downloaded automatically (see
+    ``ensure_js_runtime``), making bare VPS images work out of the box.
 
     Returns a dict shaped like yt-dlp's ``js_runtimes`` parameter, e.g.
-    ``{"node": {}, "bun": {}}``. Set YTVIDEOFREE_JS_RUNTIMES (comma-separated
-    names) to force a specific set; per-runtime locations can be pinned with
-    YTVIDEOFREE_DENO_LOCATION / YTVIDEOFREE_NODE_LOCATION / YTVIDEOFREE_BUN_LOCATION /
-    YTVIDEOFREE_QUICKJS_LOCATION.
+    ``{"node": {"path": "/usr/bin/node"}}``. Set YTVIDEOFREE_JS_RUNTIMES
+    (comma-separated names) to force a specific set; per-runtime locations can
+    be pinned with YTVIDEOFREE_DENO_LOCATION / YTVIDEOFREE_NODE_LOCATION /
+    YTVIDEOFREE_BUN_LOCATION / YTVIDEOFREE_QUICKJS_LOCATION.
     """
     forced = os.getenv("YTVIDEOFREE_JS_RUNTIMES")
     if forced:
@@ -268,27 +392,23 @@ def find_js_runtimes() -> dict[str, dict[str, str]]:
             for name in forced.split(",")
             if name.strip().lower() in JS_RUNTIMES
         ]
-        if names:
-            return {name: {} for name in names}
+    else:
+        names = list(JS_RUNTIMES)
 
     runtimes: dict[str, dict[str, str]] = {}
-    for name in JS_RUNTIMES:
-        configured = os.getenv(f"YTVIDEOFREE_{name.upper()}_LOCATION")
-        if configured and Path(configured).exists():
-            runtimes[name] = {"path": configured}
-            continue
-        binary = shutil.which(JS_RUNTIME_BINARIES[name])
-        if name == "quickjs" and not binary:
-            binary = shutil.which("quickjs")
-        if binary:
-            runtimes[name] = {}
+    for name in names:
+        binary = _resolve_runtime_binary(name)
+        if binary and _runtime_is_supported(name, binary):
+            runtimes[name] = {"path": binary}
 
-    # Bare servers without any JS runtime: grab a standalone Node binary so the
-    # PO-token solver can run. This is what makes the app work on a fresh VPS
-    # without the operator installing anything.
+    # No *usable* runtime: on bare servers there is none at all, and on some VPS
+    # images there is one that is too old for yt-dlp's solver (e.g. Node 18,
+    # which yt-dlp silently ignores). Either way, grab a standalone Node >= 22
+    # so the PO-token solver can run without the operator installing anything.
     if not runtimes:
         if bundled := ensure_js_runtime():
-            runtimes["node"] = {"path": str(bundled)}
+            if _runtime_is_supported("node", str(bundled)):
+                runtimes["node"] = {"path": str(bundled)}
 
     return runtimes
 

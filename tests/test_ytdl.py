@@ -24,7 +24,9 @@ class CliTests(unittest.TestCase):
         def enter():
             return contexts.pop(0)
 
-        with patch("ytdl.YoutubeDL") as youtube_dl:
+        with patch("ytdl.YoutubeDL") as youtube_dl, patch(
+            "sys.stdout", new_callable=MagicMock
+        ):
             youtube_dl.return_value.__enter__.side_effect = enter
             result = ytdl.get_video_info("https://youtu.be/JQJgxx38S30")
 
@@ -56,7 +58,7 @@ class CliTests(unittest.TestCase):
             "ytdl.extract_video_id", return_value="JQJgxx38S30"
         ), patch("ytdl.cmd_info") as cmd_info, patch(
             "sys.argv", ["ytdl.py", "info", "https://youtu.be/JQJgxx38S30", "--cookies", "/tmp/cookies.txt"]
-        ):
+        ), patch("sys.stdout", new_callable=MagicMock):
             ytdl.main()
             cmd_info.assert_called_once_with("https://youtu.be/JQJgxx38S30")
             self.assertEqual(env.get("YTVIDEOFREE_COOKIES_FILE"), "/tmp/cookies.txt")
@@ -73,7 +75,9 @@ class CliTests(unittest.TestCase):
             "ytdl.extract_video_id", return_value="JQJgxx38S30"
         ), patch("ytdl.cmd_info", side_effect=DownloadError(bot_check)), patch(
             "sys.argv", ["ytdl.py", "info", "https://youtu.be/JQJgxx38S30"]
-        ), patch("sys.stderr", new_callable=MagicMock) as stderr, self.assertRaises(SystemExit) as ctx:
+        ), patch("sys.stdout", new_callable=MagicMock), patch(
+            "sys.stderr", new_callable=MagicMock
+        ) as stderr, self.assertRaises(SystemExit) as ctx:
             ytdl.main()
 
         self.assertEqual(ctx.exception.code, 1)
