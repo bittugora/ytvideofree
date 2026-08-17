@@ -23,10 +23,15 @@ import zipfile
 from pathlib import Path
 
 from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.formatters import TextFormatter, SRTFormatter
 
-from downloader.core.media import find_js_runtimes as app_find_js_runtimes
+from downloader.core.media import (
+    _opts_with_fallback_clients,
+    find_js_runtimes as app_find_js_runtimes,
+)
+from downloader.errors import BOT_CHECK_MESSAGE, is_bot_check_error
 
 
 OUTPUT_DIR = Path.cwd() / "downloads"
@@ -71,14 +76,41 @@ def default_opts() -> dict:
     ffmpeg = find_ffmpeg()
     if ffmpeg:
         opts["ffmpeg_location"] = ffmpeg
-    if runtimes := find_js_runtimes():
+    runtimes = find_js_runtimes()
+    if runtimes:
         opts["js_runtimes"] = runtimes
+    else:
+        print(
+            "Warning: no JavaScript runtime available for yt-dlp's anti-bot solver. "
+            "Install nodejs, or set YTVIDEOFREE_COOKIES_FILE to a cookies.txt file.",
+            file=sys.stderr,
+        )
+    cookies_file = os.getenv("YTVIDEOFREE_COOKIES_FILE")
+    if cookies_file:
+        opts["cookiefile"] = cookies_file
     return opts
 
 
+def retry_bot_check(url: str, opts: dict, *, download: bool):
+    """Run yt-dlp once, retrying with cookie-free fallback player clients when
+    YouTube answers with the bot check. Mirrors downloader/core/media.py."""
+    try:
+        with YoutubeDL(opts) as ydl:
+            if download:
+                return ydl.download([url])
+            return ydl.extract_info(url, download=False)
+    except DownloadError as exc:
+        if is_bot_check_error(str(exc)):
+            print("YouTube bot check detected — retrying with fallback player clients...")
+            with YoutubeDL(_opts_with_fallback_clients(opts)) as ydl:
+                if download:
+                    return ydl.download([url])
+                return ydl.extract_info(url, download=False)
+        raise
+
+
 def get_video_info(url: str) -> dict:
-    with YoutubeDL({**default_opts(), "quiet": True}) as ydl:
-        return ydl.extract_info(url, download=False)
+    return retry_bot_check(url, {**default_opts(), "quiet": True}, download=False)
 
 
 def format_duration(seconds: int) -> str:
@@ -168,9 +200,7 @@ def cmd_video(url: str, output: str, quality: str):
         print("Run 'python ytdl.py install-ffmpeg' for best quality.\n")
         opts["format"] = "best[height<=720]/best"
 
-    with YoutubeDL(opts) as ydl:
-        ydl.download([url])
-
+    retry_bot_check(url, opts, download=True)
     print(f"\nDownloaded to: {out.resolve()}")
 
 
@@ -195,9 +225,7 @@ def cmd_audio(url: str, output: str):
             }
         ],
     }
-    with YoutubeDL(opts) as ydl:
-        ydl.download([url])
-
+    retry_bot_check(url, opts, download=True)
     print(f"\nDownloaded to: {out.resolve()}")
 
 
@@ -280,6 +308,12 @@ def cmd_all(url: str, output: str, quality: str, srt: bool = False):
 
 
 def main():
+    # Emoji and non-Latin characters in video titles crash the console on
+    # Windows (cp1252); force UTF-8 output everywhere.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(
         description="YouTube Video, Shorts & Transcript Downloader",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -300,6 +334,11 @@ Examples:
                         help="Video quality (default: best)")
     parser.add_argument("--srt", action="store_true", help="Export transcript as SRT format")
     parser.add_argument("--lang", nargs="+", help="Transcript language codes (e.g. en es fr)")
+    parser.add_argument(
+        "--cookies",
+        help="Path to a Netscape-format cookies.txt file exported from a browser "
+        "(for YouTube's bot check; see YTVIDEOFREE_COOKIES_FILE env var)",
+    )
 
     args = parser.parse_args()
 
@@ -320,19 +359,28 @@ Examples:
         print("  https://youtube.com/embed/...")
         sys.exit(1)
 
+    if args.cookies:
+        os.environ["YTVIDEOFREE_COOKIES_FILE"] = args.cookies
+
     print(f"Video ID: {video_id}\n")
 
-    match args.command:
-        case "info":
-            cmd_info(args.url)
-        case "video":
-            cmd_video(args.url, args.output, args.quality)
-        case "audio":
-            cmd_audio(args.url, args.output)
-        case "transcript":
-            cmd_transcript(args.url, args.output, args.srt, args.lang)
-        case "all":
-            cmd_all(args.url, args.output, args.quality, args.srt)
+    try:
+        match args.command:
+            case "info":
+                cmd_info(args.url)
+            case "video":
+                cmd_video(args.url, args.output, args.quality)
+            case "audio":
+                cmd_audio(args.url, args.output)
+            case "transcript":
+                cmd_transcript(args.url, args.output, args.srt, args.lang)
+            case "all":
+                cmd_all(args.url, args.output, args.quality, args.srt)
+    except DownloadError as exc:
+        if is_bot_check_error(str(exc)):
+            print("\n" + BOT_CHECK_MESSAGE, file=sys.stderr)
+            sys.exit(1)
+        raise
 
 
 if __name__ == "__main__":

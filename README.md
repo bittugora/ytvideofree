@@ -93,7 +93,15 @@ python ytdl.py video "https://youtu.be/dQw4w9WgXcQ" -q 1080p
 python ytdl.py audio "https://youtube.com/watch?v=dQw4w9WgXcQ"
 python ytdl.py transcript "https://youtube.com/watch?v=dQw4w9WgXcQ"
 python ytdl.py all "https://youtube.com/watch?v=dQw4w9WgXcQ" -q 720p
+# If YouTube's bot check blocks the server IP, pass exported browser cookies:
+python ytdl.py --cookies cookies.txt info "https://youtube.com/watch?v=dQw4w9WgXcQ"
 ```
+
+The CLI uses the same anti-bot handling as the web app: it auto-detects (or
+auto-downloads) a JS runtime, retries with cookie-free fallback player clients
+when YouTube answers with the bot check, honors `YTVIDEOFREE_COOKIES_FILE`, and
+prints the friendly cookie hint instead of a raw traceback when the bot check
+wins.
 
 ### Run Tests
 
