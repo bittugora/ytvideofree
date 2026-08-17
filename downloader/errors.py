@@ -6,12 +6,21 @@ NETWORK_BLOCKED_MESSAGE = (
     "This same network block affects video, MP3, and transcript requests."
 )
 
+BOT_CHECK_MESSAGE = (
+    "YouTube blocked this request with a bot check (“Sign in to confirm you’re not a bot”). "
+    "This is not a problem with the link you pasted. The site operator can fix it by exporting "
+    "browser cookies to a file and setting YTVIDEOFREE_COOKIES_FILE, or by installing a JavaScript "
+    "runtime such as Node.js on the server. Please try again in a little while."
+)
+
 
 def clean_error(exc: Exception) -> str:
     message = str(exc).strip()
     message = message.replace("ERROR:", "").strip()
     if is_network_permission_error(message):
         return NETWORK_BLOCKED_MESSAGE
+    if is_bot_check_error(message):
+        return BOT_CHECK_MESSAGE
     return message or "The request could not be completed."
 
 
@@ -23,4 +32,14 @@ def is_network_permission_error(message: str) -> bool:
             "failed to establish a new connection" in normalized
             and "access permissions" in normalized
         )
+    )
+
+
+def is_bot_check_error(message: str) -> bool:
+    """Detect yt-dlp's YouTube bot-check rejection."""
+    normalized = message.lower()
+    return (
+        "confirm you're not a bot" in normalized
+        or "confirm you are not a bot" in normalized
+        or ("cookies-from-browser" in normalized and "cookies" in normalized)
     )

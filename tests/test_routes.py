@@ -156,6 +156,31 @@ class RouteTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("detail", response.json())
 
+    def test_api_inspect_returns_friendly_message_for_bot_check(self):
+        from yt_dlp.utils import DownloadError
+
+        from downloader.errors import BOT_CHECK_MESSAGE
+
+        bot_check = (
+            "[youtube] sKNq4CqWkT4: Sign in to confirm you're not a bot. "
+            "Use --cookies-from-browser or --cookies for the authentication. "
+            "See https://github.com/yt-dlp/yt-dlp/wiki/FAQ for details."
+        )
+
+        with patch(
+            "downloader.views.inspect_video",
+            side_effect=DownloadError(bot_check),
+        ):
+            response = self.client.post(
+                "/api/inspect",
+                data=json.dumps({"url": "https://www.youtube.com/watch?v=sKNq4CqWkT4"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"], BOT_CHECK_MESSAGE)
+        self.assertNotIn("cookies-from-browser", response.json()["detail"])
+
     def test_api_inspect_rejects_invalid_payload(self):
         response = self.client.post(
             "/api/inspect",

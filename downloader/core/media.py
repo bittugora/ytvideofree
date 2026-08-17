@@ -15,7 +15,7 @@ from yt_dlp import YoutubeDL
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-OUTPUT_ROOT = Path(os.getenv("YTTAKEN_OUTPUT_DIR", tempfile.gettempdir())) / "ytvideofree"
+OUTPUT_ROOT = Path(os.getenv("YTVIDEOFREE_OUTPUT_DIR", tempfile.gettempdir())) / "ytvideofree"
 
 YOUTUBE_HOSTS = {
     "youtube.com",
@@ -92,7 +92,7 @@ def validate_youtube_url(url: str) -> str:
 
 
 def find_ffmpeg() -> str | None:
-    configured = os.getenv("YTTAKEN_FFMPEG_LOCATION")
+    configured = os.getenv("YTVIDEOFREE_FFMPEG_LOCATION")
     if configured and Path(configured).exists():
         return configured
 
@@ -120,12 +120,12 @@ def find_js_runtimes() -> dict[str, dict[str, str]]:
     enable every runtime found on this machine.
 
     Returns a dict shaped like yt-dlp's ``js_runtimes`` parameter, e.g.
-    ``{"node": {}, "bun": {}}``. Set YTTAKEN_JS_RUNTIMES (comma-separated
+    ``{"node": {}, "bun": {}}``. Set YTVIDEOFREE_JS_RUNTIMES (comma-separated
     names) to force a specific set; per-runtime locations can be pinned with
-    YTTAKEN_DENO_LOCATION / YTTAKEN_NODE_LOCATION / YTTAKEN_BUN_LOCATION /
-    YTTAKEN_QUICKJS_LOCATION.
+    YTVIDEOFREE_DENO_LOCATION / YTVIDEOFREE_NODE_LOCATION / YTVIDEOFREE_BUN_LOCATION /
+    YTVIDEOFREE_QUICKJS_LOCATION.
     """
-    forced = os.getenv("YTTAKEN_JS_RUNTIMES")
+    forced = os.getenv("YTVIDEOFREE_JS_RUNTIMES")
     if forced:
         names = [
             name.strip().lower()
@@ -137,7 +137,7 @@ def find_js_runtimes() -> dict[str, dict[str, str]]:
 
     runtimes: dict[str, dict[str, str]] = {}
     for name in JS_RUNTIMES:
-        configured = os.getenv(f"YTTAKEN_{name.upper()}_LOCATION")
+        configured = os.getenv(f"YTVIDEOFREE_{name.upper()}_LOCATION")
         if configured and Path(configured).exists():
             runtimes[name] = {"path": configured}
             continue
@@ -168,7 +168,7 @@ def default_ydl_opts(*, quiet: bool = True) -> dict[str, Any]:
     if runtimes := find_js_runtimes():
         opts["js_runtimes"] = runtimes
 
-    cookies_file = os.getenv("YTTAKEN_COOKIES_FILE")
+    cookies_file = os.getenv("YTVIDEOFREE_COOKIES_FILE")
     if cookies_file:
         opts["cookiefile"] = cookies_file
 

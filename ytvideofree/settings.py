@@ -2,9 +2,10 @@
 Django settings for the ytvideofree Django edition.
 
 Environment variables mirror the original FastAPI app where the behavior
-overlaps: YTTAKEN_OUTPUT_DIR, YTTAKEN_FFMPEG_LOCATION, YTTAKEN_NODE_LOCATION,
-YTTAKEN_COOKIES_FILE, and YTTAKEN_ALLOWED_HOSTS. Django-specific variables are
-DJANGO_SECRET_KEY and DJANGO_DEBUG.
+overlaps: YTVIDEOFREE_OUTPUT_DIR, YTVIDEOFREE_FFMPEG_LOCATION,
+YTVIDEOFREE_NODE_LOCATION, YTVIDEOFREE_COOKIES_FILE, and
+YTVIDEOFREE_ALLOWED_HOSTS. Django-specific variables are DJANGO_SECRET_KEY and
+DJANGO_DEBUG.
 """
 
 import os
@@ -19,8 +20,8 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-ytvideofree-dev-key
 #DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
 DEBUG = False
 
-# Comma-separated list, e.g. YTTAKEN_ALLOWED_HOSTS=ytvideofree.com,www.ytvideofree.com
-ALLOWED_HOSTS = [host.strip() for host in os.getenv("YTTAKEN_ALLOWED_HOSTS", "*").split(",") if host.strip()]
+# Comma-separated list, e.g. YTVIDEOFREE_ALLOWED_HOSTS=ytvideofree.com,www.ytvideofree.com
+ALLOWED_HOSTS = [host.strip() for host in os.getenv("YTVIDEOFREE_ALLOWED_HOSTS", "*").split(",") if host.strip()]
 if not ALLOWED_HOSTS:
     ALLOWED_HOSTS = ["*"]
 

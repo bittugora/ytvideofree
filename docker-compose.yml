@@ -6,5 +6,5 @@ services:
     environment:
       DJANGO_DEBUG: "0"
       DJANGO_SECRET_KEY: change-me
-      YTTAKEN_OUTPUT_DIR: /tmp
+      YTVIDEOFREE_OUTPUT_DIR: /tmp
     restart: unless-stopped

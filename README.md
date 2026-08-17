@@ -144,15 +144,15 @@ abuse. Rate-limit bookkeeping failures never block the feature itself.
 |---|---|---|
 | `DJANGO_SECRET_KEY` | dev-only key | Django secret key (required in production) |
 | `DJANGO_DEBUG` | `1` | Set to `0` in production |
-| `YTTAKEN_ALLOWED_HOSTS` | `*` | Comma-separated allowed Host headers |
-| `YTTAKEN_OUTPUT_DIR` | system temp dir | Temporary download directory |
-| `YTTAKEN_FFMPEG_LOCATION` | auto-detected | Path to ffmpeg binary |
-| `YTTAKEN_NODE_LOCATION` | auto-detected | Path to node binary |
-| `YTTAKEN_JS_RUNTIMES` | auto-detected | Comma-separated JS runtimes for yt-dlp (`deno`, `node`, `bun`, `quickjs`) |
-| `YTTAKEN_DENO_LOCATION` | auto-detected | Path to deno binary |
-| `YTTAKEN_BUN_LOCATION` | auto-detected | Path to bun binary |
-| `YTTAKEN_QUICKJS_LOCATION` | auto-detected | Path to quickjs binary |
-| `YTTAKEN_COOKIES_FILE` | (none) | yt-dlp cookies file path |
+| `YTVIDEOFREE_ALLOWED_HOSTS` | `*` | Comma-separated allowed Host headers |
+| `YTVIDEOFREE_OUTPUT_DIR` | system temp dir | Temporary download directory |
+| `YTVIDEOFREE_FFMPEG_LOCATION` | auto-detected | Path to ffmpeg binary |
+| `YTVIDEOFREE_NODE_LOCATION` | auto-detected | Path to node binary |
+| `YTVIDEOFREE_JS_RUNTIMES` | auto-detected | Comma-separated JS runtimes for yt-dlp (`deno`, `node`, `bun`, `quickjs`) |
+| `YTVIDEOFREE_DENO_LOCATION` | auto-detected | Path to deno binary |
+| `YTVIDEOFREE_BUN_LOCATION` | auto-detected | Path to bun binary |
+| `YTVIDEOFREE_QUICKJS_LOCATION` | auto-detected | Path to quickjs binary |
+| `YTVIDEOFREE_COOKIES_FILE` | (none) | yt-dlp cookies file path |
 
 ## YouTube anti-bot checks
 
@@ -160,11 +160,12 @@ YouTube periodically challenges automated requests with “Sign in to confirm
 you're not a bot.” Modern yt-dlp answers these JS challenges and mints PO
 tokens using an external JavaScript runtime — only `deno` is enabled by
 default, so this app auto-detects `node`/`bun`/`deno`/`quickjs` from `PATH`
-(overridable with `YTTAKEN_JS_RUNTIMES` and the per-runtime location vars above)
-and enables every runtime it finds. Install one of those runtimes on the
-server. For IPs that YouTube flags regardless of the solver, export cookies
-to a file and set `YTTAKEN_COOKIES_FILE` (see the yt-dlp wiki for how to
-export YouTube cookies).
+(overridable with `YTVIDEOFREE_JS_RUNTIMES` and the per-runtime location vars
+above) and enables every runtime it finds. Install one of those runtimes on
+the server. When the bot check still wins, the app shows a friendly message
+in the UI instead of the raw yt-dlp error; the fix is to export browser
+cookies to a file and set `YTVIDEOFREE_COOKIES_FILE` (see the yt-dlp wiki for
+how to export YouTube cookies).
 
 ## Docker
 
@@ -249,7 +250,7 @@ provided (falling back to the video ID and language code).
 
 - The JSON API views are CSRF-exempt because the web UI posts JSON without a
   CSRF token. Keep the site behind a reverse proxy and restrict
-  `YTTAKEN_ALLOWED_HOSTS` in production.
+  `YTVIDEOFREE_ALLOWED_HOSTS` in production.
 - Temporary media files are cleaned up after each download response finishes.
 - The 404 page, `/docs`, `/terms`, `/privacy`, `/copyright`, and the frontend
   follow the same design as the original.
@@ -271,5 +272,3 @@ on Docker, Render/Heroku (Procfile), and systemd deployments.
 ## License
 
 Use only for content you own or have permission to download. The authors are not affiliated with YouTube or Google.
-#   y t v i d e o f r e e  
- 
