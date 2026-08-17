@@ -1,9 +1,15 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+from yt_dlp.utils import DownloadError
+
 from downloader.core.media import (
     InvalidYouTubeUrl,
+    _extract_info,
+    _opts_with_fallback_clients,
+    default_ydl_opts,
     extract_video_id,
+    find_js_runtimes,
     inspect_video,
     serialize_info,
     validate_youtube_url,
@@ -62,6 +68,78 @@ class MediaTests(unittest.TestCase):
 
         self.assertEqual(info["id"], "psVUIguZAQg")
         downloader.extract_info.assert_called_once()
+
+    def test_fallback_clients_option_overrides_player_client(self):
+        opts = _opts_with_fallback_clients(default_ydl_opts())
+        self.assertEqual(
+            opts["extractor_args"]["youtube"]["player_client"],
+            ["tv_downgraded", "android_vr"],
+        )
+
+    def test_extract_info_retries_with_fallback_clients_on_bot_check(self):
+        bot_check = (
+            "[youtube] sKNq4CqWkT4: Sign in to confirm you're not a bot. "
+            "Use --cookies-from-browser or --cookies for the authentication."
+        )
+
+        first = MagicMock()
+        first.extract_info.side_effect = DownloadError(bot_check)
+        second = MagicMock()
+        second.extract_info.return_value = {"id": "sKNq4CqWkT4", "title": "ok"}
+
+        contexts = [first, second]
+
+        def enter():
+            return contexts.pop(0)
+
+        with patch("downloader.core.media.YoutubeDL") as youtube_dl:
+            youtube_dl.return_value.__enter__.side_effect = enter
+            result = _extract_info(
+                "https://www.youtube.com/watch?v=sKNq4CqWkT4",
+                download=False,
+                opts=default_ydl_opts(),
+            )
+
+        self.assertEqual(result["id"], "sKNq4CqWkT4")
+        self.assertEqual(youtube_dl.call_count, 2)
+        # The retry opts request the cookie-free fallback player clients.
+        retry_opts = youtube_dl.call_args_list[1][0][0]
+        self.assertEqual(
+            retry_opts["extractor_args"]["youtube"]["player_client"],
+            ["tv_downgraded", "android_vr"],
+        )
+
+    def test_extract_info_does_not_retry_for_other_errors(self):
+        with patch("downloader.core.media.YoutubeDL") as youtube_dl:
+            youtube_dl.return_value.__enter__.return_value.extract_info.side_effect = DownloadError(
+                "Video unavailable"
+            )
+            with self.assertRaises(DownloadError):
+                _extract_info(
+                    "https://www.youtube.com/watch?v=psVUIguZAQg",
+                    download=False,
+                    opts=default_ydl_opts(),
+                )
+
+        self.assertEqual(youtube_dl.call_count, 1)
+
+    def test_find_js_runtimes_returns_forced_set(self):
+        with patch.dict(
+            "os.environ",
+            {"YTVIDEOFREE_JS_RUNTIMES": "node, bun"},
+            clear=False,
+        ):
+            runtimes = find_js_runtimes()
+        self.assertEqual(sorted(runtimes), ["bun", "node"])
+
+    def test_find_js_runtimes_prefers_configured_location(self):
+        with patch("downloader.core.media.shutil.which", return_value=None), patch.dict(
+            "os.environ",
+            {"YTVIDEOFREE_NODE_LOCATION": "/usr/bin/node"},
+            clear=False,
+        ), patch("downloader.core.media.Path.exists", return_value=True):
+            runtimes = find_js_runtimes()
+        self.assertEqual(runtimes, {"node": {"path": "/usr/bin/node"}})
 
 
 if __name__ == "__main__":

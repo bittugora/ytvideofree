@@ -150,8 +150,12 @@ abuse. Rate-limit bookkeeping failures never block the feature itself.
 | `YTVIDEOFREE_NODE_LOCATION` | auto-detected | Path to node binary |
 | `YTVIDEOFREE_JS_RUNTIMES` | auto-detected | Comma-separated JS runtimes for yt-dlp (`deno`, `node`, `bun`, `quickjs`) |
 | `YTVIDEOFREE_DENO_LOCATION` | auto-detected | Path to deno binary |
+| `YTVIDEOFREE_NODE_LOCATION` | auto-detected | Path to node binary |
 | `YTVIDEOFREE_BUN_LOCATION` | auto-detected | Path to bun binary |
 | `YTVIDEOFREE_QUICKJS_LOCATION` | auto-detected | Path to quickjs binary |
+| `YTVIDEOFREE_AUTO_RUNTIME` | `1` | Auto-download a standalone Node.js binary when no JS runtime is installed |
+| `YTVIDEOFREE_NODE_VERSION` | `v22.14.0` | Node.js version for the auto-downloaded runtime |
+| `YTVIDEOFREE_RUNTIME_DIR` | `.cache/runtimes` | Where the auto-downloaded runtime is stored |
 | `YTVIDEOFREE_COOKIES_FILE` | (none) | yt-dlp cookies file path |
 
 ## YouTube anti-bot checks
@@ -159,13 +163,28 @@ abuse. Rate-limit bookkeeping failures never block the feature itself.
 YouTube periodically challenges automated requests with “Sign in to confirm
 you're not a bot.” Modern yt-dlp answers these JS challenges and mints PO
 tokens using an external JavaScript runtime — only `deno` is enabled by
-default, so this app auto-detects `node`/`bun`/`deno`/`quickjs` from `PATH`
-(overridable with `YTVIDEOFREE_JS_RUNTIMES` and the per-runtime location vars
-above) and enables every runtime it finds. Install one of those runtimes on
-the server. When the bot check still wins, the app shows a friendly message
-in the UI instead of the raw yt-dlp error; the fix is to export browser
-cookies to a file and set `YTVIDEOFREE_COOKIES_FILE` (see the yt-dlp wiki for
-how to export YouTube cookies).
+default, so this app:
+
+1. **Auto-detects** `node`/`bun`/`deno`/`quickjs` from `PATH` (overridable
+   with `YTVIDEOFREE_JS_RUNTIMES` and the per-runtime location vars above) and
+   enables every runtime it finds.
+2. **Auto-downloads a bundled Node.js** when the server has no JS runtime at
+   all (bare VPS images like Hostinger PVS often ship without one), so the
+   PO-token solver works out of the box. Disable with
+   `YTVIDEOFREE_AUTO_RUNTIME=0`; the binary is cached under
+   `YTVIDEOFREE_RUNTIME_DIR`.
+3. **Retries with cookie-free fallback clients** (`tv_downgraded`,
+   `android_vr`) when YouTube still answers with the bot check — these old
+   JS-less clients often work from flagged datacenter IPs without cookies.
+4. **Shows a friendly message** in the UI instead of the raw yt-dlp error
+   when the bot check wins, suggesting the operator configure cookies.
+
+If a video still fails, the guaranteed fix is to export browser cookies to a
+file and set `YTVIDEOFREE_COOKIES_FILE` (see the yt-dlp wiki for how to
+export YouTube cookies). The admin dashboard has a **“YouTube bot-check
+status”** page at `/admin/status/` that shows what is configured and can run a
+live test against a real video to confirm the server's IP is (or isn't) being
+bot-checked.
 
 ## Docker
 
@@ -261,6 +280,22 @@ See `scripts/deploy_ubuntu.sh` and `deploy/openlitespeed/vhost-notes.md` for a
 Hostinger/OpenLiteSpeed walkthrough, or push to Render/Heroku using the
 included `render.yaml` / `Procfile`. Migrations run automatically at startup
 on Docker, Render/Heroku (Procfile), and systemd deployments.
+
+### “The request could not be completed.” on the VPS
+
+If the app runs locally but requests fail on the VPS, the usual causes are:
+
+1. **gunicorn worker timeout** — the default 30s kills YouTube extractions
+   that take longer. All shipped configs (systemd unit, Procfile, Dockerfile)
+   now start gunicorn with `--timeout 300 --graceful-timeout 60`; keep those
+   flags if you run gunicorn yourself. The OpenLiteSpeed proxy's “Initial
+   Request Timeout” must stay well above gunicorn's (the notes use 1200).
+2. **Missing JS runtime / ffmpeg** — `apt install nodejs ffmpeg`, or rely on
+   the bundled Node.js auto-download (see above).
+3. **YouTube bot check on the server's IP** — see the anti-bot section above;
+   use the `/admin/status/` page to diagnose.
+4. **Missing `DJANGO_SECRET_KEY` / wrong `YTVIDEOFREE_ALLOWED_HOSTS`** — check
+   the service logs (`journalctl -u ytvideofree`).
 
 ## Security Notes
 

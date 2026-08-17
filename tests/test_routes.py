@@ -63,6 +63,51 @@ class RouteTests(TestCase):
         response = self.client.get("/admin/login/")
         self.assertEqual(response.status_code, 200)
 
+    def test_admin_bot_check_status_page_requires_staff(self):
+        # Anonymous users are redirected to the admin login.
+        response = self.client.get("/admin/status/")
+        self.assertIn(response.status_code, (301, 302))
+        self.assertIn("/admin/login/", response["Location"])
+
+    def test_admin_bot_check_status_page_renders_for_staff(self):
+        from django.contrib.auth import get_user_model
+
+        user = get_user_model().objects.create_superuser(
+            username="statuscheck", email="", password="pass"
+        )
+        self.client.force_login(user)
+
+        response = self.client.get("/admin/status/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "YouTube bot-check status")
+        self.assertContains(response, "YTVIDEOFREE_COOKIES_FILE")
+        self.assertContains(response, "Run live bot-check test")
+
+    def test_admin_bot_check_status_live_test_reports_success(self):
+        from unittest.mock import call
+
+        from django.contrib.auth import get_user_model
+
+        from downloader.admin_views import TEST_VIDEO_URL
+
+        user = get_user_model().objects.create_superuser(
+            username="statustest", email="", password="pass"
+        )
+        self.client.force_login(user)
+
+        with patch(
+            "downloader.admin_views.inspect_video",
+            return_value={"title": "youtube-dl test video"},
+        ) as mock_inspect:
+            response = self.client.post("/admin/status/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["ok"], True)
+        self.assertEqual(response.json()["bot_check"], False)
+        self.assertIn("Extraction succeeded", response.json()["detail"])
+        # The live test really targets the known-good URL.
+        self.assertIn(call(TEST_VIDEO_URL), mock_inspect.mock_calls)
+
     def test_rate_limit_config_is_editable_from_admin(self):
         from django.contrib.auth import get_user_model
 

@@ -26,6 +26,8 @@ from yt_dlp import YoutubeDL
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.formatters import TextFormatter, SRTFormatter
 
+from downloader.core.media import find_js_runtimes as app_find_js_runtimes
+
 
 OUTPUT_DIR = Path.cwd() / "downloads"
 
@@ -57,13 +59,11 @@ def find_js_runtimes() -> dict:
     """Return yt-dlp js_runtimes config for every runtime found on PATH.
 
     Modern yt-dlp needs an external JS runtime (deno/node/bun/quickjs) to solve
-    YouTube's anti-bot JS challenges; only deno is enabled by default.
+    YouTube's anti-bot JS challenges; only deno is enabled by default. Delegates
+    to the app's shared detection, which also auto-downloads a standalone Node.js
+    on bare servers when none is installed.
     """
-    runtimes = {}
-    for name, binary in (("deno", "deno"), ("node", "node"), ("bun", "bun"), ("quickjs", "qjs")):
-        if shutil.which(binary):
-            runtimes[name] = {}
-    return runtimes
+    return app_find_js_runtimes()
 
 
 def default_opts() -> dict:

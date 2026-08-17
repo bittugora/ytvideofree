@@ -1,21 +1,51 @@
 from __future__ import annotations
 
+import logging
 import mimetypes
 import os
+import platform
 import re
 import shutil
+import subprocess
+import sys
+import tarfile
 import tempfile
+import threading
 import urllib.request
 import uuid
+import zipfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError
 
+from ..errors import is_bot_check_error
+
+
+logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 OUTPUT_ROOT = Path(os.getenv("YTVIDEOFREE_OUTPUT_DIR", tempfile.gettempdir())) / "ytvideofree"
+
+# Directory where a standalone Node.js binary is downloaded when no JS runtime
+# is installed on the server. Override with YTVIDEOFREE_RUNTIME_DIR.
+RUNTIME_DIR = Path(
+    os.getenv("YTVIDEOFREE_RUNTIME_DIR", str(ROOT_DIR / ".cache" / "runtimes"))
+)
+
+# Node version used for the auto-downloaded runtime (official nodejs.org build).
+NODE_VERSION = os.getenv("YTVIDEOFREE_NODE_VERSION", "v22.14.0")
+
+# Set to "0" to disable auto-downloading a Node.js runtime on bare servers.
+AUTO_DOWNLOAD_RUNTIME = os.getenv("YTVIDEOFREE_AUTO_RUNTIME", "1") != "0"
+
+# Cookie-free player clients tried when YouTube's bot check blocks the default
+# (web) clients. These are the old JS-less clients that do not require PO
+# tokens, so they often bypass the "Sign in to confirm you're not a bot" block
+# even from flagged datacenter IPs without cookies.
+FALLBACK_PLAYER_CLIENTS = ("tv_downgraded", "android_vr")
 
 YOUTUBE_HOSTS = {
     "youtube.com",
@@ -109,6 +139,110 @@ def find_ffmpeg() -> str | None:
 JS_RUNTIMES = ("deno", "node", "bun", "quickjs")
 JS_RUNTIME_BINARIES = {"deno": "deno", "node": "node", "bun": "bun", "quickjs": "qjs"}
 
+# One lock shared by all workers so only a single Node download happens at a
+# time; the process-local flag avoids re-attempting a failed download forever.
+_runtime_lock = threading.Lock()
+_runtime_download_attempted = False
+
+
+def _node_asset() -> tuple[str, str] | None:
+    """Return the (basename, archive-ext) of the official Node.js build for this machine."""
+    machine = platform.machine().lower()
+    system = sys.platform.lower()
+
+    if system.startswith("win"):
+        os_name, ext = "win", "zip"
+        arch = "x64" if machine in ("amd64", "x86_64") else "arm64" if machine in ("arm64", "aarch64") else None
+    elif system == "darwin":
+        os_name, ext = "darwin", "tar.gz"
+        arch = "arm64" if machine in ("arm64", "aarch64") else "x64" if machine in ("x86_64", "amd64") else None
+    elif system.startswith("linux"):
+        os_name, ext = "linux", "tar.xz"
+        arch = "x64" if machine in ("x86_64", "amd64") else "arm64" if machine in ("arm64", "aarch64") else None
+    else:
+        return None
+
+    if not arch:
+        return None
+    return f"node-v{NODE_VERSION}-{os_name}-{arch}", ext
+
+
+def _node_binary(directory: Path) -> Path:
+    return directory / ("node.exe" if sys.platform.startswith("win") else "bin" / "node")
+
+
+def _node_works(path: Path) -> bool:
+    try:
+        result = subprocess.run(
+            [str(path), "--version"], capture_output=True, timeout=15, check=False
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def ensure_js_runtime() -> Path | None:
+    """Download a standalone Node.js binary into RUNTIME_DIR when none is available.
+
+    Bare VPS images (Hostinger PVS, plain Ubuntu, etc.) often ship without a JS
+    runtime, which makes yt-dlp fail YouTube's bot check. This downloads the
+    official Node.js binary from nodejs.org on first use so the PO-token solver
+    works without the operator installing anything. Returns the path to the
+    node binary, or None when the download fails or is disabled.
+    """
+    global _runtime_download_attempted
+
+    asset = _node_asset()
+    if asset is None:
+        return None
+
+    basename, ext = asset
+    node_dir = RUNTIME_DIR / basename
+    node_bin = _node_binary(node_dir)
+
+    if node_bin.exists() and _node_works(node_bin):
+        return node_bin
+
+    with _runtime_lock:
+        if _runtime_download_attempted:
+            # Already tried this process (or another worker is doing it).
+            if node_bin.exists() and _node_works(node_bin):
+                return node_bin
+            return None
+        _runtime_download_attempted = True
+
+        if not AUTO_DOWNLOAD_RUNTIME:
+            logger.warning("No JS runtime found and YTVIDEOFREE_AUTO_RUNTIME=0; not downloading Node.")
+            return None
+
+        url = f"https://nodejs.org/dist/{NODE_VERSION}/{basename}.{ext}"
+        archive = RUNTIME_DIR / f"{basename}.{ext}"
+        try:
+            RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+            logger.info("Downloading Node.js %s for the yt-dlp bot-check solver: %s", NODE_VERSION, url)
+            urllib.request.urlretrieve(url, archive)
+            if ext == "zip":
+                with zipfile.ZipFile(archive) as zf:
+                    zf.extractall(RUNTIME_DIR)
+            else:
+                with tarfile.open(archive, "r:*") as tf:
+                    tf.extractall(RUNTIME_DIR)
+        except Exception as exc:
+            logger.warning("Failed to auto-download Node.js runtime: %s", exc)
+            return None
+        finally:
+            if archive.exists():
+                try:
+                    archive.unlink()
+                except OSError:
+                    pass
+
+        if _node_works(node_bin):
+            return node_bin
+        logger.warning("Downloaded Node.js binary does not run; removing it.")
+        shutil.rmtree(node_dir, ignore_errors=True)
+        return None
+
 
 def find_js_runtimes() -> dict[str, dict[str, str]]:
     """Auto-detect JavaScript runtimes for yt-dlp's YouTube JS-challenge solver.
@@ -117,7 +251,9 @@ def find_js_runtimes() -> dict[str, dict[str, str]]:
     solve YouTube's bot-check challenges and mint PO tokens; only "deno" is
     enabled by default, which most servers do not have. Without a usable
     runtime YouTube answers with "Sign in to confirm you're not a bot", so we
-    enable every runtime found on this machine.
+    enable every runtime found on this machine. When none is installed, a
+    standalone Node.js binary is downloaded automatically (see
+    ``ensure_js_runtime``), so bare VPS images work out of the box.
 
     Returns a dict shaped like yt-dlp's ``js_runtimes`` parameter, e.g.
     ``{"node": {}, "bun": {}}``. Set YTVIDEOFREE_JS_RUNTIMES (comma-separated
@@ -146,6 +282,14 @@ def find_js_runtimes() -> dict[str, dict[str, str]]:
             binary = shutil.which("quickjs")
         if binary:
             runtimes[name] = {}
+
+    # Bare servers without any JS runtime: grab a standalone Node binary so the
+    # PO-token solver can run. This is what makes the app work on a fresh VPS
+    # without the operator installing anything.
+    if not runtimes:
+        if bundled := ensure_js_runtime():
+            runtimes["node"] = {"path": str(bundled)}
+
     return runtimes
 
 
@@ -175,12 +319,40 @@ def default_ydl_opts(*, quiet: bool = True) -> dict[str, Any]:
     return opts
 
 
+def _opts_with_fallback_clients(opts: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of opts that requests YouTube's cookie-free fallback clients."""
+    opts = dict(opts)
+    extractor_args = dict(opts.get("extractor_args") or {})
+    extractor_args["youtube"] = {
+        **dict(extractor_args.get("youtube") or {}),
+        "player_client": list(FALLBACK_PLAYER_CLIENTS),
+    }
+    opts["extractor_args"] = extractor_args
+    return opts
+
+
+def _extract_info(clean_url: str, *, download: bool, opts: dict[str, Any]) -> dict[str, Any]:
+    """Run yt-dlp, retrying once with cookie-free fallback clients on a bot check.
+
+    When YouTube answers with "Sign in to confirm you're not a bot", the default
+    web clients are blocked. The old JS-less clients (tv_downgraded, android_vr)
+    usually still work from flagged IPs without cookies, so we retry with those
+    before surfacing the friendly error message.
+    """
+    try:
+        with YoutubeDL(opts) as ydl:
+            return ydl.extract_info(clean_url, download=download)
+    except DownloadError as exc:
+        if is_bot_check_error(str(exc)):
+            logger.info("YouTube bot check hit; retrying with fallback player clients.")
+            with YoutubeDL(_opts_with_fallback_clients(opts)) as ydl:
+                return ydl.extract_info(clean_url, download=download)
+        raise
+
+
 def inspect_video(url: str) -> dict[str, Any]:
     clean_url = validate_youtube_url(url)
-
-    with YoutubeDL(default_ydl_opts()) as ydl:
-        info = ydl.extract_info(clean_url, download=False)
-
+    info = _extract_info(clean_url, download=False, opts=default_ydl_opts())
     return serialize_info(info)
 
 
@@ -244,8 +416,16 @@ def download_media(url: str, *, mode: str, quality: str = "best", audio_quality:
     else:
         raise ValueError("mode must be either 'video' or 'audio'")
 
-    with YoutubeDL(opts) as ydl:
-        ydl.download([clean_url])
+    try:
+        with YoutubeDL(opts) as ydl:
+            ydl.download([clean_url])
+    except DownloadError as exc:
+        if is_bot_check_error(str(exc)):
+            logger.info("YouTube bot check hit; retrying download with fallback player clients.")
+            with YoutubeDL(_opts_with_fallback_clients(opts)) as ydl:
+                ydl.download([clean_url])
+        else:
+            raise
 
     return newest_download(work_dir)
 

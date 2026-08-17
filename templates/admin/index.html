@@ -1,0 +1,18 @@
+{% extends "admin/index.html" %}
+{% load i18n %}
+
+{% block content %}
+{{ block.super }}
+<div class="module" id="content-botcheck">
+    <h2>{% translate 'YouTube bot-check status' %}</h2>
+    <p>
+        Check whether this server can pass YouTube's anti-bot checks. The page
+        shows which JavaScript runtime (needed by yt-dlp's PO-token solver),
+        ffmpeg, and cookies file are configured, and can run a live test
+        against a real YouTube video.
+    </p>
+    <ul class="object-tools" style="margin:0; padding-top: 6px;">
+        <li><a href="{% url 'admin:bot-check-status' %}">{% translate 'Open bot-check status' %}</a></li>
+    </ul>
+</div>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<div id="content-main">
+  <h1>{{ title }}</h1>
+  <p>
+    YouTube periodically answers datacenter/server requests with a bot check
+    ("Sign in to confirm you're not a bot"). yt-dlp needs an external
+    JavaScript runtime to solve those challenges, and a cookies file is the
+    guaranteed fallback for flagged IPs. This page shows whether this server
+    has what it needs.
+  </p>
+
+  <div class="module">
+    <h2>{% translate 'Configuration' %}</h2>
+    <table style="width: 100%;">
+      <tr><th>JavaScript runtimes detected</th><td>{{ runtimes_label }}</td></tr>
+      <tr><th>Runtime download directory</th><td><code>{{ runtime_dir }}</code></td></tr>
+      <tr>
+        <th>Auto-download Node.js when none found</th>
+        <td>
+          {% if auto_download_runtime %}Enabled (downloads Node.js {{ node_version }} on first use){% else %}Disabled{% endif %}
+        </td>
+      </tr>
+      <tr><th>ffmpeg</th><td>{% if ffmpeg %}<code>{{ ffmpeg }}</code>{% else %}<strong class="deletelink" style="padding-left:0;">not found</strong>{% endif %}</td></tr>
+      <tr>
+        <th>Cookies file (<code>YTVIDEOFREE_COOKIES_FILE</code>)</th>
+        <td>
+          {% if cookies_file %}
+            <code>{{ cookies_file }}</code>
+            {% if cookies_exists %}— file exists{% else %}— <strong class="deletelink" style="padding-left:0;">file not found on disk</strong>{% endif %}
+          {% else %}— not configured{% endif %}
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="module">
+    <h2>{% translate 'Live test' %}</h2>
+    <p>
+      Run a real extraction of the known-good video
+      <code>{{ test_video_url }}</code> from this server's IP. If YouTube's
+      bot check fires, the fallback player clients are tried automatically
+      before the friendly error is reported.
+    </p>
+    <form id="botcheck-form" method="post">{% csrf_token %}
+      <button type="submit" class="button" style="padding: 6px 12px;">Run live bot-check test</button>
+    </form>
+    <div id="botcheck-result" style="margin-top: 12px; white-space: pre-wrap;"></div>
+  </div>
+
+  <div class="module">
+    <h2>{% translate 'Friendly error shown to users' %}</h2>
+    <p style="font-style: italic;">{{ bot_check_message }}</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  var form = document.getElementById("botcheck-form");
+  var result = document.getElementById("botcheck-result");
+  if (!form) return;
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+    result.textContent = "Running… (can take up to a minute)";
+    result.style.color = "#666";
+    fetch(window.location.href, {
+      method: "POST",
+      headers: { "X-CSRFToken": form.querySelector("[name=csrfmiddlewaretoken]").value },
+    })
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        result.style.color = data.ok ? "green" : (data.bot_check ? "#c7254e" : "#c7254e");
+        result.textContent = data.detail;
+      })
+      .catch(function () {
+        result.style.color = "#c7254e";
+        result.textContent = "The live test request failed. Check the server logs.";
+      });
+  });
+})();
+</script>
+{% endblock %}
