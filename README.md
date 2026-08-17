@@ -101,7 +101,19 @@ The CLI uses the same anti-bot handling as the web app: it auto-detects (or
 auto-downloads) a JS runtime, retries with cookie-free fallback player clients
 when YouTube answers with the bot check, honors `YTVIDEOFREE_COOKIES_FILE`, and
 prints the friendly cookie hint instead of a raw traceback when the bot check
-wins.
+wins. It also **validates the cookies file** and tells you exactly what is
+wrong — yt-dlp silently ignores a missing or logged-out cookies file, which is
+why the bot check can keep firing with no explanation:
+
+```bash
+python3 ytdl.py --cookies cookies.txt info "<url>"
+# Warning: Cookies file not found: ... — yt-dlp silently runs with ZERO cookies...
+# Warning: ... no signed-in session ... Export cookies from a browser while SIGNED IN ...
+```
+
+Pass `-v/--verbose` to also print the detected JS runtimes and the full
+yt-dlp debug log (shows whether the JS challenge solver engages and whether
+the cookies are attached to requests).
 
 ### Run Tests
 
@@ -187,6 +199,10 @@ default, so this app:
    JS-less clients often work from flagged datacenter IPs without cookies.
 4. **Shows a friendly message** in the UI instead of the raw yt-dlp error
    when the bot check wins, suggesting the operator configure cookies.
+5. **Validates the cookies file** — a missing, unreadable, or logged-out
+   export is reported in the server logs and on the `/admin/status/` page
+   (cookie counts, youtube.com coverage, signed-in session presence), because
+   yt-dlp otherwise fails silently with zero cookies.
 
 If a video still fails, the guaranteed fix is to export browser cookies to a
 file and set `YTVIDEOFREE_COOKIES_FILE` (see the yt-dlp wiki for how to

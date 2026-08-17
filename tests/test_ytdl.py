@@ -1,5 +1,7 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from yt_dlp.utils import DownloadError
@@ -51,7 +53,33 @@ class CliTests(unittest.TestCase):
     def test_default_opts_picks_up_cookies_env(self):
         with patch.dict("os.environ", {"YTVIDEOFREE_COOKIES_FILE": "/tmp/cookies.txt"}, clear=False):
             opts = ytdl.default_opts()
-        self.assertEqual(opts["cookiefile"], "/tmp/cookies.txt")
+        self.assertEqual(str(Path(opts["cookiefile"])), str(Path("/tmp/cookies.txt").resolve()))
+
+    def test_default_opts_resolves_relative_cookies_file_and_warns_if_missing(self):
+        with patch.dict(
+            "os.environ", {"YTVIDEOFREE_COOKIES_FILE": "missing-cookies.txt"}, clear=False
+        ), patch("sys.stderr", new_callable=MagicMock) as stderr:
+            opts = ytdl.default_opts()
+        # The path is made absolute so a different working directory cannot
+        # silently break it, and the missing file is reported loudly.
+        self.assertTrue(Path(opts["cookiefile"]).is_absolute())
+        self.assertIn("not found", str(stderr.write.call_args_list).lower())
+
+    def test_default_opts_warns_when_cookies_have_no_session(self):
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
+        tmp.write(
+            "# Netscape HTTP Cookie File\n"
+            ".youtube.com\tTRUE\t/\tTRUE\t2147483647\tCONSENT\tYES+1\n"
+        )
+        tmp.close()
+        try:
+            with patch.dict(
+                "os.environ", {"YTVIDEOFREE_COOKIES_FILE": tmp.name}, clear=False
+            ), patch("sys.stderr", new_callable=MagicMock) as stderr:
+                ytdl.default_opts()
+            self.assertIn("signed in", str(stderr.write.call_args_list).lower())
+        finally:
+            os.unlink(tmp.name)
 
     def test_main_threads_cookies_flag_into_env(self):
         with patch.dict("os.environ", {}, clear=False) as env, patch(

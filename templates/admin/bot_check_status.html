@@ -61,7 +61,18 @@
         <td>
           {% if cookies_file %}
             <code>{{ cookies_file }}</code>
-            {% if cookies_exists %}— file exists{% else %}— <strong class="deletelink" style="padding-left:0;">file not found on disk</strong>{% endif %}
+            {% if cookie_report %}
+              <div style="margin-top: 6px;">
+                {{ cookie_report.cookie_count }} cookies total,
+                {{ cookie_report.youtube_cookie_count }} for youtube.com,
+                {% if cookie_report.has_session %}signed-in session present ✓{% else %}no signed-in session{% endif %}
+              </div>
+              {% if not cookie_report.usable %}
+                <strong class="deletelink" style="padding-left:0; display:inline-block; margin-top:4px;">{{ cookie_report.summary }}</strong>
+              {% endif %}
+            {% else %}
+              {% if cookies_exists %}— file exists{% else %}— <strong class="deletelink" style="padding-left:0;">file not found on disk</strong>{% endif %}
+            {% endif %}
           {% else %}— not configured{% endif %}
         </td>
       </tr>

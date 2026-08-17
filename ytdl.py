@@ -27,6 +27,7 @@ from yt_dlp.utils import DownloadError
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.formatters import TextFormatter, SRTFormatter
 
+from downloader.core.cookiefile import CookieFileReport, inspect_cookies_file
 from downloader.core.media import (
     _opts_with_fallback_clients,
     find_js_runtimes as app_find_js_runtimes,
@@ -35,6 +36,9 @@ from downloader.errors import BOT_CHECK_MESSAGE, is_bot_check_error
 
 
 OUTPUT_DIR = Path.cwd() / "downloads"
+
+# Set from the --verbose flag in main() so default_opts() can forward it.
+_VERBOSE = False
 
 
 def extract_video_id(url: str) -> str | None:
@@ -71,8 +75,26 @@ def find_js_runtimes() -> dict:
     return app_find_js_runtimes()
 
 
+def cookies_file() -> str | None:
+    """Absolute path of the configured cookies file (YTVIDEOFREE_COOKIES_FILE)."""
+    value = os.getenv("YTVIDEOFREE_COOKIES_FILE")
+    if not value:
+        return None
+    return str(Path(value).expanduser().resolve())
+
+
+def cookie_report() -> CookieFileReport | None:
+    """Inspect the configured cookies file; None when none is configured."""
+    path = cookies_file()
+    if not path:
+        return None
+    return inspect_cookies_file(path)
+
+
 def default_opts() -> dict:
     opts = {"quiet": False, "no_warnings": True}
+    if _VERBOSE:
+        opts["verbose"] = True
     ffmpeg = find_ffmpeg()
     if ffmpeg:
         opts["ffmpeg_location"] = ffmpeg
@@ -85,9 +107,12 @@ def default_opts() -> dict:
             "Install nodejs, or set YTVIDEOFREE_COOKIES_FILE to a cookies.txt file.",
             file=sys.stderr,
         )
-    cookies_file = os.getenv("YTVIDEOFREE_COOKIES_FILE")
-    if cookies_file:
-        opts["cookiefile"] = cookies_file
+    path = cookies_file()
+    if path:
+        opts["cookiefile"] = path
+        report = inspect_cookies_file(path)
+        if not report.usable:
+            print(f"Warning: {report.summary()}", file=sys.stderr)
     return opts
 
 
@@ -339,6 +364,10 @@ Examples:
         help="Path to a Netscape-format cookies.txt file exported from a browser "
         "(for YouTube's bot check; see YTVIDEOFREE_COOKIES_FILE env var)",
     )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="Show the full yt-dlp debug log plus cookie/runtime diagnostics",
+    )
 
     args = parser.parse_args()
 
@@ -362,6 +391,18 @@ Examples:
     if args.cookies:
         os.environ["YTVIDEOFREE_COOKIES_FILE"] = args.cookies
 
+    global _VERBOSE
+    _VERBOSE = args.verbose
+
+    if args.verbose:
+        runtimes = find_js_runtimes()
+        print("JS runtimes in use:", ", ".join(sorted(runtimes)) or "NONE")
+        if report := cookie_report():
+            print("Cookies:", report.summary())
+        else:
+            print("Cookies: none configured (YTVIDEOFREE_COOKIES_FILE not set)")
+        print()
+
     print(f"Video ID: {video_id}\n")
 
     try:
@@ -379,6 +420,18 @@ Examples:
     except DownloadError as exc:
         if is_bot_check_error(str(exc)):
             print("\n" + BOT_CHECK_MESSAGE, file=sys.stderr)
+            if not args.verbose:
+                if report := cookie_report():
+                    print("\nDiagnosis:", report.summary(), file=sys.stderr)
+                runtimes = find_js_runtimes()
+                print(
+                    "JS runtimes in use:", ", ".join(sorted(runtimes)) or "NONE",
+                    file=sys.stderr,
+                )
+                print(
+                    "Tip: re-run with --verbose for the full yt-dlp debug log.",
+                    file=sys.stderr,
+                )
             sys.exit(1)
         raise
 

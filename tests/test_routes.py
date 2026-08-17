@@ -1,4 +1,6 @@
 import json
+import os
+import tempfile
 from unittest.mock import patch
 
 from django.test import TestCase
@@ -109,6 +111,35 @@ class RouteTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "18.19.1")
         self.assertContains(response, "too old")
+
+    def test_admin_bot_check_status_page_shows_cookie_report(self):
+        from django.contrib.auth import get_user_model
+
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
+        tmp.write(
+            "# Netscape HTTP Cookie File\n"
+            ".youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tfake\n"
+            ".youtube.com\tTRUE\t/\tTRUE\t2147483647\tSAPISID\tfake\n"
+            ".youtube.com\tTRUE\t/\tTRUE\t2147483647\tLOGIN_INFO\tfake\n"
+        )
+        tmp.close()
+
+        user = get_user_model().objects.create_superuser(
+            username="cookiestatus", email="", password="pass"
+        )
+        self.client.force_login(user)
+        try:
+            with patch.dict(
+                "os.environ", {"YTVIDEOFREE_COOKIES_FILE": tmp.name}, clear=False
+            ), patch("downloader.admin_views.find_js_runtimes", return_value={}), patch(
+                "downloader.admin_views.discover_runtime_binaries", return_value={}
+            ), patch("downloader.admin_views.ensure_js_runtime", return_value=None):
+                response = self.client.get("/admin/status/")
+        finally:
+            os.unlink(tmp.name)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "signed-in session")
 
     def test_admin_bot_check_status_live_test_reports_success(self):
         from unittest.mock import call

@@ -18,11 +18,13 @@ from django.views.decorators.http import require_http_methods
 
 from yt_dlp.utils import DownloadError
 
+from .core.cookiefile import inspect_cookies_file
 from .core.media import (
     AUTO_DOWNLOAD_RUNTIME,
     NODE_VERSION,
     RUNTIME_DIR,
     _runtime_probe,
+    configured_cookies_file,
     discover_runtime_binaries,
     ensure_js_runtime,
     find_ffmpeg,
@@ -59,7 +61,8 @@ def _status_context() -> dict[str, Any]:
         for name, detail in sorted(detected.items())
     ]
 
-    cookies_file = os.getenv("YTVIDEOFREE_COOKIES_FILE") or ""
+    cookies_file = configured_cookies_file() or ""
+    cookie_report = inspect_cookies_file(cookies_file) if cookies_file else None
     return {
         "title": "YouTube bot-check status",
         "test_video_url": TEST_VIDEO_URL,
@@ -73,6 +76,7 @@ def _status_context() -> dict[str, Any]:
         "ffmpeg": find_ffmpeg() or "",
         "cookies_file": cookies_file,
         "cookies_exists": bool(cookies_file) and os.path.exists(cookies_file),
+        "cookie_report": cookie_report,
         "bot_check_message": BOT_CHECK_MESSAGE,
     }
 

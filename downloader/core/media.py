@@ -22,6 +22,7 @@ from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 from ..errors import is_bot_check_error
+from .cookiefile import inspect_cookies_file
 
 
 logger = logging.getLogger(__name__)
@@ -432,11 +433,31 @@ def default_ydl_opts(*, quiet: bool = True) -> dict[str, Any]:
     if runtimes := find_js_runtimes():
         opts["js_runtimes"] = runtimes
 
-    cookies_file = os.getenv("YTVIDEOFREE_COOKIES_FILE")
+    cookies_file = configured_cookies_file()
     if cookies_file:
         opts["cookiefile"] = cookies_file
+        report = inspect_cookies_file(cookies_file)
+        if not report.usable:
+            logger.warning("Configured cookies file is not usable: %s", report.summary())
 
     return opts
+
+
+def configured_cookies_file() -> str | None:
+    """Absolute path of YTVIDEOFREE_COOKIES_FILE, or None when not configured.
+
+    Relative paths resolve against the project root: systemd/gunicorn may start
+    the app from a different working directory, and yt-dlp silently ignores a
+    cookie file it cannot find — which leaves the bot check firing with no hint
+    why.
+    """
+    cookies_file = os.getenv("YTVIDEOFREE_COOKIES_FILE")
+    if not cookies_file:
+        return None
+    cookie_path = Path(cookies_file).expanduser()
+    if not cookie_path.is_absolute():
+        cookie_path = ROOT_DIR / cookie_path
+    return str(cookie_path)
 
 
 def _opts_with_fallback_clients(opts: dict[str, Any]) -> dict[str, Any]:
