@@ -39,6 +39,16 @@ from .errors import BOT_CHECK_MESSAGE, clean_error, is_bot_check_error
 TEST_VIDEO_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
 
 
+def _check_ejs_package() -> dict[str, Any]:
+    """Check whether the yt-dlp-ejs Python package is installed."""
+    try:
+        import yt_dlp_ejs
+
+        return {"installed": True, "version": getattr(yt_dlp_ejs, "version", "unknown")}
+    except ImportError:
+        return {"installed": False, "version": None}
+
+
 def _status_context() -> dict[str, Any]:
     runtimes = find_js_runtimes()
     detected = discover_runtime_binaries()
@@ -78,6 +88,8 @@ def _status_context() -> dict[str, Any]:
         "cookies_exists": bool(cookies_file) and os.path.exists(cookies_file),
         "cookie_report": cookie_report,
         "bot_check_message": BOT_CHECK_MESSAGE,
+        "ejs_package": _check_ejs_package(),
+        "remote_components_enabled": True,
     }
 
 

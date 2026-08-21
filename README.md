@@ -319,7 +319,14 @@ If the app runs locally but requests fail on the VPS, the usual causes are:
    the bundled Node.js auto-download (see above). Note: the installed Node must
    be ≥ 22 — an older Node (e.g. 18, which ships with Ubuntu 24.04) is silently
    ignored by yt-dlp; the app detects this and uses its bundled Node 22 instead.
-3. **YouTube bot check on the server's IP** — see the anti-bot section above;
+3. **EJS challenge-solver scripts** — yt-dlp needs two JavaScript scripts
+   (`yt.solver.lib.js` + `yt.solver.core.js`) to solve YouTube's anti-bot
+   challenges. On bare servers the `yt-dlp-ejs` package is usually not
+   installed, and only `yt.solver.core.js` is vendored. The app now enables
+   `remote_components: ejs:github` so yt-dlp downloads the missing script
+   from GitHub on first use. For faster startup (no network fetch), install
+   the package: `pip install yt-dlp-ejs`.
+4. **YouTube bot check on the server's IP** — see the anti-bot section above;
    use the `/admin/status/` page to diagnose.
 4. **Missing `DJANGO_SECRET_KEY` / wrong `YTVIDEOFREE_ALLOWED_HOSTS`** — check
    the service logs (`journalctl -u ytvideofree`).

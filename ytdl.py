@@ -107,6 +107,9 @@ def default_opts() -> dict:
             "Install nodejs, or set YTVIDEOFREE_COOKIES_FILE to a cookies.txt file.",
             file=sys.stderr,
         )
+    # Allow yt-dlp to download EJS challenge-solver scripts from GitHub when
+    # the yt-dlp-ejs Python package is not installed.
+    opts["remote_components"] = {"ejs:github"}
     path = cookies_file()
     if path:
         opts["cookiefile"] = path

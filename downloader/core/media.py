@@ -434,6 +434,13 @@ def default_ydl_opts(*, quiet: bool = True) -> dict[str, Any]:
     if runtimes := find_js_runtimes():
         opts["js_runtimes"] = runtimes
 
+    # Allow yt-dlp to download EJS challenge-solver scripts from GitHub
+    # when the yt-dlp-ejs Python package is not installed.  The solver
+    # needs two scripts (yt.solver.lib.js + yt.solver.core.js); on bare
+    # VPS images the pypackage source is absent and only the core script
+    # is vendored, so the lib script must come from GitHub.
+    opts["remote_components"] = {"ejs:github"}
+
     # Exclude player clients whose download URLs return HTTP 403 from
     # YouTube's CDN.  ``android_vr`` and ``tv_downgraded`` can extract
     # metadata but their byte-transfer URLs are rejected; ``web_creator``

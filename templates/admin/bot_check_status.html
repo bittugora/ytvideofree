@@ -46,6 +46,38 @@
   </div>
 
   <div class="module">
+    <h2>{% translate 'EJS challenge solver' %}</h2>
+    <table style="width: 100%;">
+      <tr>
+        <th>yt-dlp-ejs Python package</th>
+        <td>
+          {% if ejs_package.installed %}
+            installed (v{{ ejs_package.version }}) ✓
+          {% else %}
+            <strong style="color: #c7254e;">not installed</strong> — solver scripts will be downloaded from GitHub
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <th>Remote script download (<code>ejs:github</code>)</th>
+        <td>
+          {% if remote_components_enabled %}enabled ✓{% else %}<strong class="deletelink" style="padding-left:0;">disabled</strong>{% endif %}
+          <div style="margin-top: 4px; font-size: 0.9em; color: #666;">
+            Allows yt-dlp to fetch challenge-solver scripts from GitHub when
+            the yt-dlp-ejs package is not installed.
+          </div>
+        </td>
+      </tr>
+    </table>
+    {% if not ejs_package.installed %}
+    <p style="margin-top: 8px;">
+      For best performance (no network fetch on first use), install the package:
+      <code>pip install yt-dlp-ejs</code>
+    </p>
+    {% endif %}
+  </div>
+
+  <div class="module">
     <h2>{% translate 'Configuration' %}</h2>
     <table style="width: 100%;">
       <tr><th>Runtime download directory</th><td><code>{{ runtime_dir }}</code></td></tr>
