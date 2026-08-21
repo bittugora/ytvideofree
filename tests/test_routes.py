@@ -166,32 +166,6 @@ class RouteTests(TestCase):
         # The live test really targets the known-good URL.
         self.assertIn(call(TEST_VIDEO_URL), mock_inspect.mock_calls)
 
-    def test_rate_limit_config_is_editable_from_admin(self):
-        from django.contrib.auth import get_user_model
-
-        from downloader.models import RateLimitConfig
-
-        if not RateLimitConfig.objects.exists():
-            RateLimitConfig.objects.create()
-
-        user = get_user_model().objects.create_superuser(
-            username="admincheck", email="", password="pass"
-        )
-        self.client.force_login(user)
-        response = self.client.get("/admin/downloader/ratelimitconfig/")
-
-        self.assertEqual(response.status_code, 200)
-        # Every admin-configurable setting is editable inline on the list page
-        # (Django names inline fields form-0-<field>).
-        for field in (
-            "enabled",
-            "max_concurrent_requests",
-            "max_requests_per_window",
-            "window_seconds",
-            "max_downloads_per_day",
-        ):
-            self.assertContains(response, f'name="form-0-{field}"')
-
     def test_amp_page_renders(self):
         response = self.client.get("/amp")
         self.assertEqual(response.status_code, 200)
@@ -367,73 +341,6 @@ class RouteTests(TestCase):
         response = self.client.get("/")
         self.assertContains(response, "Download Thumbnail")
 
-
-class PerLinkDailyLimitTests(TestCase):
-    """The daily download limit counts links, not files: video, audio, and
-    transcript downloads for one link consume a single unit."""
-
-    def setUp(self):
-        from downloader.models import RateLimitConfig
-
-        RateLimitConfig.objects.create(
-            enabled=True,
-            max_concurrent_requests=1,
-            max_requests_per_window=100,
-            window_seconds=60,
-            max_downloads_per_day=1,
-        )
-
-    def test_video_and_transcript_for_one_link_counts_once(self):
-        from downloader.models import ClientUsage
-
-        # Video download for link A (fails after counting the link).
-        with patch("downloader.views.download_media", side_effect=ValueError("conversion failed")):
-            response = self.client.post(
-                "/api/download",
-                data=json.dumps(
-                    {"url": "https://www.youtube.com/watch?v=psVUIguZAQg", "mode": "video"}
-                ),
-                content_type="application/json",
-            )
-        self.assertEqual(response.status_code, 422)
-
-        # Transcript download for the SAME link is still allowed.
-        with patch("downloader.views.require_video_id", return_value="psVUIguZAQg"), patch(
-            "downloader.views.get_transcript",
-            return_value={"text": "hello", "srt": "1\nhello", "language_code": "en"},
-        ):
-            response = self.client.post(
-                "/api/transcript/download",
-                data=json.dumps({"url": "https://www.youtube.com/watch?v=psVUIguZAQg", "format": "txt"}),
-                content_type="application/json",
-            )
-        self.assertEqual(response.status_code, 200)
-
-        usage = ClientUsage.objects.get(key="ip:127.0.0.1")
-        self.assertEqual(usage.day_downloads, 1)
-        self.assertEqual(usage.downloaded_links, ["psVUIguZAQg"])
-
-    def test_new_link_is_blocked_after_daily_limit(self):
-        with patch("downloader.views.download_media", side_effect=ValueError("conversion failed")):
-            response = self.client.post(
-                "/api/download",
-                data=json.dumps(
-                    {"url": "https://www.youtube.com/watch?v=psVUIguZAQg", "mode": "video"}
-                ),
-                content_type="application/json",
-            )
-        self.assertEqual(response.status_code, 422)
-
-        with patch("downloader.views.download_media", side_effect=ValueError("conversion failed")):
-            response = self.client.post(
-                "/api/download",
-                data=json.dumps(
-                    {"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "mode": "video"}
-                ),
-                content_type="application/json",
-            )
-        self.assertEqual(response.status_code, 429)
-        self.assertIn("Daily download limit", response.json()["detail"])
 
     def test_api_transcript_download_returns_txt_attachment_named_after_title(self):
         with patch("downloader.views.require_video_id", return_value="psVUIguZAQg"), patch(

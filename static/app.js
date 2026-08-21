@@ -346,9 +346,10 @@ async function downloadThumbnail() {
     const response = await fetch("/api/thumbnail", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, title: state.info?.title || null }),
     });
-    await downloadBlobResponse(response, "thumbnail.jpg");
+    const thumbName = (state.info?.title || "thumbnail").replace(/[^A-Za-z0-9._ -]+/g, "").trim().slice(0, 120) || "thumbnail";
+    await downloadBlobResponse(response, "thumbnail.jpg", thumbName + ".jpg");
     setDone("Downloaded");
     setMessage("Thumbnail download started.");
   } catch (error) {
@@ -451,7 +452,7 @@ async function postJson(url, payload) {
   return response.json();
 }
 
-async function downloadBlobResponse(response, fallbackName) {
+async function downloadBlobResponse(response, fallbackName, overrideName) {
   if (!response.ok) {
     throw new Error(await responseError(response));
   }
@@ -460,7 +461,7 @@ async function downloadBlobResponse(response, fallbackName) {
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = objectUrl;
-  link.download = filenameFromDisposition(response.headers.get("Content-Disposition")) || fallbackName;
+  link.download = overrideName || filenameFromDisposition(response.headers.get("Content-Disposition")) || fallbackName;
   document.body.appendChild(link);
   link.click();
   link.remove();

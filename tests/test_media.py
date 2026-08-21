@@ -80,7 +80,7 @@ class MediaTests(unittest.TestCase):
         opts = _opts_with_fallback_clients(default_ydl_opts())
         self.assertEqual(
             opts["extractor_args"]["youtube"]["player_client"],
-            ["tv_downgraded", "android_vr"],
+            ["android", "mweb"],
         )
 
     def test_extract_info_retries_with_fallback_clients_on_bot_check(self):
@@ -113,7 +113,7 @@ class MediaTests(unittest.TestCase):
         retry_opts = youtube_dl.call_args_list[1][0][0]
         self.assertEqual(
             retry_opts["extractor_args"]["youtube"]["player_client"],
-            ["tv_downgraded", "android_vr"],
+            ["android", "mweb"],
         )
 
     def test_extract_info_does_not_retry_for_other_errors(self):

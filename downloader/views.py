@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -23,11 +22,7 @@ from .core.media import (
     safe_download_name,
     validate_youtube_url,
 )
-from .core.ratelimit import (
-    enforce_daily_link_limit,
-    enforce_rate_limit,
-    release_concurrent_slot,
-)
+
 from .core.transcripts import DEFAULT_LANGUAGES, get_transcript
 from .errors import clean_error
 from .site_pages import SITE_PAGES
@@ -98,29 +93,6 @@ def http_json_error(status: int, detail: str) -> JsonResponse:
     return JsonResponse({"detail": detail}, status=status)
 
 
-def rate_limited():
-    """Enforce per-client window/concurrency limits, releasing the slot after.
-
-    The daily per-link download limit is enforced separately by
-    enforce_daily_link_limit() inside the download views, once the video ID is
-    known.
-    """
-
-    def decorator(view_func):
-        @wraps(view_func)
-        def wrapper(request, *args, **kwargs):
-            error_response, acquired = enforce_rate_limit(request)
-            if error_response is not None:
-                return error_response
-            try:
-                return view_func(request, *args, **kwargs)
-            finally:
-                if acquired:
-                    release_concurrent_slot(request)
-
-        return wrapper
-
-    return decorator
 
 
 # --- Page routes -----------------------------------------------------------
@@ -192,7 +164,6 @@ def page_not_found(request: HttpRequest, exception: Exception | None = None) -> 
 
 @csrf_exempt
 @require_POST
-@rate_limited()
 def api_inspect(request: HttpRequest) -> JsonResponse:
     try:
         payload = parse_json_body(request)
@@ -207,16 +178,11 @@ def api_inspect(request: HttpRequest) -> JsonResponse:
 
 @csrf_exempt
 @require_POST
-@rate_limited()
 def api_download(request: HttpRequest) -> HttpResponse:
     try:
         payload = parse_json_body(request)
         url = require_url(payload)
         mode, quality, audio_quality = parse_download_options(payload)
-        video_id = require_video_id(url)
-        daily_error = enforce_daily_link_limit(request, video_id)
-        if daily_error is not None:
-            return daily_error
         media_file = download_media(
             url,
             mode=mode,
@@ -240,7 +206,6 @@ def api_download(request: HttpRequest) -> HttpResponse:
 
 @csrf_exempt
 @require_POST
-@rate_limited()
 def api_transcript(request: HttpRequest) -> JsonResponse:
     try:
         payload = parse_json_body(request)
@@ -259,7 +224,6 @@ def api_transcript(request: HttpRequest) -> JsonResponse:
 
 @csrf_exempt
 @require_POST
-@rate_limited()
 def api_thumbnail(request: HttpRequest) -> HttpResponse:
     try:
         payload = parse_json_body(request)
@@ -272,7 +236,12 @@ def api_thumbnail(request: HttpRequest) -> HttpResponse:
     except Exception as exc:
         return http_json_error(422, clean_error(exc))
 
-    filename = f"{video_id}-thumbnail.jpg"
+    title = payload.get("title")
+    if title and isinstance(title, str) and title.strip():
+        filename = safe_download_name(title.strip(), "jpg")
+    else:
+        filename = f"{video_id}-thumbnail.jpg"
+
     response = HttpResponse(image_bytes, content_type=content_type)
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
@@ -280,14 +249,10 @@ def api_thumbnail(request: HttpRequest) -> HttpResponse:
 
 @csrf_exempt
 @require_POST
-@rate_limited()
 def api_transcript_download(request: HttpRequest) -> HttpResponse:
     try:
         payload = parse_json_body(request)
         video_id = require_video_id(require_url(payload))
-        daily_error = enforce_daily_link_limit(request, video_id)
-        if daily_error is not None:
-            return daily_error
         languages, translate_to, fmt = parse_transcript_options(payload)
         transcript = get_transcript(video_id, languages=languages, translate_to=translate_to)
         title = payload.get("title")

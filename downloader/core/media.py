@@ -42,11 +42,12 @@ NODE_VERSION = os.getenv("YTVIDEOFREE_NODE_VERSION", "v22.14.0")
 # Set to "0" to disable auto-downloading a Node.js runtime on bare servers.
 AUTO_DOWNLOAD_RUNTIME = os.getenv("YTVIDEOFREE_AUTO_RUNTIME", "1") != "0"
 
-# Cookie-free player clients tried when YouTube's bot check blocks the default
-# (web) clients. These are the old JS-less clients that do not require PO
-# tokens, so they often bypass the "Sign in to confirm you're not a bot" block
-# even from flagged datacenter IPs without cookies.
-FALLBACK_PLAYER_CLIENTS = ("tv_downgraded", "android_vr")
+# Player clients tried when YouTube's bot check blocks the default (web)
+# clients. These do not require PO tokens, so they bypass the
+# "Sign in to confirm you're not a bot" block from flagged IPs without cookies.
+# ``android_vr`` and ``tv_downgraded`` are excluded because while they can
+# extract metadata, their download URLs return HTTP 403 from YouTube's CDN.
+FALLBACK_PLAYER_CLIENTS = ("android", "mweb")
 
 YOUTUBE_HOSTS = {
     "youtube.com",
@@ -433,6 +434,18 @@ def default_ydl_opts(*, quiet: bool = True) -> dict[str, Any]:
     if runtimes := find_js_runtimes():
         opts["js_runtimes"] = runtimes
 
+    # Exclude player clients whose download URLs return HTTP 403 from
+    # YouTube's CDN.  ``android_vr`` and ``tv_downgraded`` can extract
+    # metadata but their byte-transfer URLs are rejected; ``web_creator``
+    # requires authentication.  Only set the player_client list when the
+    # caller hasn't already specified one (e.g. the fallback retry sets its own).
+    extractor_args = dict(opts.get("extractor_args") or {})
+    yt_args = dict(extractor_args.get("youtube") or {})
+    if "player_client" not in yt_args:
+        yt_args["player_client"] = ["web", "android", "mweb"]
+    extractor_args["youtube"] = yt_args
+    opts["extractor_args"] = extractor_args
+
     cookies_file = configured_cookies_file()
     if cookies_file:
         opts["cookiefile"] = cookies_file
@@ -461,7 +474,11 @@ def configured_cookies_file() -> str | None:
 
 
 def _opts_with_fallback_clients(opts: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of opts that requests YouTube's cookie-free fallback clients."""
+    """Return a copy of opts that uses cookie-free fallback clients.
+
+    The fallback player clients (android, mweb) can extract metadata and
+    download from flagged IPs without PO tokens.
+    """
     opts = dict(opts)
     extractor_args = dict(opts.get("extractor_args") or {})
     extractor_args["youtube"] = {
@@ -562,7 +579,7 @@ def download_media(url: str, *, mode: str, quality: str = "best", audio_quality:
             ydl.download([clean_url])
     except DownloadError as exc:
         if is_bot_check_error(str(exc)):
-            logger.info("YouTube bot check hit; retrying download with fallback player clients.")
+            logger.info("YouTube bot check hit during download; retrying with fallback player clients.")
             with YoutubeDL(_opts_with_fallback_clients(opts)) as ydl:
                 ydl.download([clean_url])
         else:
