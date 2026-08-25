@@ -1,6 +1,25 @@
-Django>=5.0,<6.0
-whitenoise>=6.6,<7.0
-gunicorn>=22.0,<24.0
-yt-dlp[default]>=2025.1.15
-youtube-transcript-api>=1.2.4,<2.0
-Pillow>=10.0
+# Web framework + static file serving
+Django>=4.2
+whitenoise>=6.0
+
+# YouTube extraction
+# yt-dlp must be kept recent — YouTube rotates which player clients work
+# every few months, and the bot-check fallback relies on current clients
+# (web_safari, tv, tv_simply, mweb, ...).
+yt-dlp>=2025.05.22
+yt-dlp-ejs>=0.8
+
+# Transcripts
+youtube-transcript-api>=0.6.2
+
+# Anti-bot: browser TLS/JA3 impersonation for datacenter/VPS IPs.
+# Used automatically by downloader/core/media.py (YTVIDEOFREE_IMPERSONATE).
+curl_cffi>=0.6
+
+# WSGI server (used by deploy/systemd/ytvideofree.service)
+gunicorn>=21.0
+
+# Optional but recommended for flagged IPs: PO token provider that clears
+# YouTube's "Sign in to confirm you're not a bot" check. Requires Node.js.
+# Uncomment if you follow deploy/YOUTUBE-BOTCHECK-FIX.md Option B.
+# bgutil-ytdlp-pot-provider>=1.3

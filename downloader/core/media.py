@@ -44,6 +44,12 @@ NODE_VERSION = os.getenv("YTVIDEOFREE_NODE_VERSION", "v22.14.0")
 # Set to "0" to disable auto-downloading a Node.js runtime on bare servers.
 AUTO_DOWNLOAD_RUNTIME = os.getenv("YTVIDEOFREE_AUTO_RUNTIME", "1") != "0"
 
+# Browser impersonation target for curl_cffi. curl_cffi makes yt-dlp's HTTPS
+# requests carry a real browser's TLS/JA3 fingerprint, which reduces how often
+# YouTube flags a datacenter request as automated. Set to "none" to disable;
+# requires the ``curl_cffi`` package (auto-installed on first use).
+IMPERSONATE_TARGET = os.getenv("YTVIDEOFREE_IMPERSONATE", "chrome")
+
 # YouTube runs many playback clients (web, Android, iOS, TV, ...) and trusts
 # each one to a different degree. The ``tv`` (television) client is the least
 # scrutinised and the one that most reliably clears the "Sign in to confirm
@@ -54,12 +60,13 @@ AUTO_DOWNLOAD_RUNTIME = os.getenv("YTVIDEOFREE_AUTO_RUNTIME", "1") != "0"
 #
 # Override the whole sequence with YTVIDEOFREE_PLAYER_CLIENTS: a
 # comma-separated list of groups, where ":" joins clients inside one group.
-# Example: "tv:web_safari,ios:android,mweb,tv_embedded,web"
+# Example: "web_safari:tv,mweb,ios:android,web_embedded:android_vr,tv_simply,web"
 DEFAULT_PLAYER_CLIENT_GROUPS = (
-    ("tv", "web_safari"),
+    ("web_safari", "tv"),
+    ("mweb",),
     ("ios", "android"),
-    ("mweb", "web_embedded"),
-    ("tv_embedded",),
+    ("web_embedded", "android_vr"),
+    ("tv_simply",),
     ("web",),
 )
 
@@ -186,6 +193,7 @@ FALLBACK_MIN_RUNTIME_VERSIONS = {
 _runtime_lock = threading.Lock()
 _runtime_download_attempted = False
 _ejs_install_attempted = False
+_curl_cffi_install_attempted = False
 
 # Probe results are cached per (runtime name, binary path) so requests do not
 # re-run subprocess version probes on every call.
@@ -440,6 +448,45 @@ def ensure_ejs_package() -> bool:
         return False
 
 
+def _curl_cffi_available() -> bool:
+    try:
+        import curl_cffi  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def ensure_curl_cffi() -> bool:
+    """Install ``curl_cffi`` when missing so browser impersonation can run.
+
+    On flagged datacenter IPs, impersonating a real browser's TLS fingerprint
+    (via curl_cffi) meaningfully reduces YouTube's bot-check rate. It is
+    auto-installed on first use, like the yt-dlp-ejs solver package.
+    """
+    global _curl_cffi_install_attempted
+    if _curl_cffi_available():
+        return True
+    if _curl_cffi_install_attempted:
+        return False
+    _curl_cffi_install_attempted = True
+
+    logger.info("curl_cffi not found; installing via pip...")
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", "curl_cffi"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=True,
+        )
+        importlib.invalidate_caches()
+        return _curl_cffi_available()
+    except Exception as exc:
+        logger.warning("Failed to auto-install curl_cffi: %s", exc)
+        return False
+
+
 def find_js_runtimes() -> dict[str, dict[str, str]]:
     """Auto-detect JavaScript runtimes for yt-dlp's YouTube JS-challenge solver.
 
@@ -503,6 +550,14 @@ def default_ydl_opts(*, quiet: bool = True) -> dict[str, Any]:
 
     if ffmpeg := find_ffmpeg():
         opts["ffmpeg_location"] = ffmpeg
+
+    # Impersonate a real browser's TLS fingerprint to reduce bot checks on
+    # flagged datacenter IPs. Requires curl_cffi (auto-installed on first use).
+    if IMPERSONATE_TARGET.lower() != "none":
+        if ensure_curl_cffi():
+            opts["impersonate"] = IMPERSONATE_TARGET.lower()
+        else:
+            logger.warning("curl_cffi unavailable; browser impersonation is disabled.")
 
     # Enable every available JS runtime so yt-dlp can solve YouTube's
     # anti-bot JS challenges (PO tokens). Without one, YouTube rejects

@@ -7,29 +7,54 @@
   <p>
     YouTube periodically answers datacenter/server requests with a bot check
     ("Sign in to confirm you're not a bot"). The app works around this by
-    trying a sequence of player clients — the TV client first, which most
-    reliably clears the challenge without an account or cookies. A JavaScript
-    runtime and a cookies file are only needed as a last resort for the web
-    client. This page shows whether this server has what it needs.
+    trying a sequence of player clients, plus browser impersonation and an
+    optional PO-token provider for flagged IPs. A cookies file is the
+    guaranteed fallback. This page shows whether this server has what it needs.
   </p>
 
   <div class="module">
-    <h2>{% translate 'Player clients' %}</h2>
+    <h2>{% translate 'Player clients &amp; anti-bot setup' %}</h2>
     <p>
       yt-dlp {{ yt_dlp_version }} is installed. The player-client groups below
       are tried in order; the first group YouTube accepts is used. Override the
       sequence with <code>YTVIDEOFREE_PLAYER_CLIENTS</code>
-      (e.g. <code>tv,web_safari:ios,android</code>).
+      (e.g. <code>web_safari:tv,mweb,ios:android,web</code>).
     </p>
     <ol style="margin: 4px 0 0 18px;">
       {% for group in player_client_groups %}
         <li><code>{{ group|join:", " }}</code></li>
       {% endfor %}
     </ol>
+
+    <table style="width: 100%; margin-top: 12px;">
+      <tr>
+        <th>PO Token provider (<code>bgutil-ytdlp-pot-provider</code>)</th>
+        <td>
+          {% if pot_provider.installed %}
+            installed (v{{ pot_provider.version }}) ✓
+          {% else %}
+            <strong style="color: #c7254e;">not installed</strong> — the strongest fix for a flagged IP
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <th>curl_cffi (browser impersonation)</th>
+        <td>
+          {% if curl_cffi.installed %}
+            installed (v{{ curl_cffi.version }}) ✓
+          {% else %}
+            <strong style="color: #c7254e;">not installed</strong> — auto-installing on first extraction
+          {% endif %}
+        </td>
+      </tr>
+    </table>
+
     <p style="margin-top: 8px;">
-      If every group fails, update yt-dlp to the latest release — YouTube
-      rotates which clients work every few months:
-      <code>pip install -U yt-dlp yt-dlp-ejs</code>.
+      If every client group fails from this server's IP, the most reliable fix
+      is a PO Token provider
+      (<code>pip install -U bgutil-ytdlp-pot-provider</code>) plus an up-to-date
+      yt-dlp (<code>pip install -U yt-dlp</code>), or a cookies file
+      (<code>YTVIDEOFREE_COOKIES_FILE</code>) from a throwaway account.
     </p>
   </div>
 

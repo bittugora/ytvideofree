@@ -53,6 +53,16 @@ def _check_ejs_package() -> dict[str, Any]:
         return {"installed": False, "version": None}
 
 
+def _check_optional_package(name: str) -> dict[str, Any]:
+    """Check whether an optional pip package is installed."""
+    try:
+        from importlib import metadata
+
+        return {"installed": True, "version": metadata.version(name)}
+    except Exception:
+        return {"installed": False, "version": None}
+
+
 def _status_context() -> dict[str, Any]:
     # Try to auto-install yt-dlp-ejs if missing.
     ensure_ejs_package()
@@ -99,6 +109,8 @@ def _status_context() -> dict[str, Any]:
         "remote_components_enabled": True,
         "player_client_groups": player_client_groups(),
         "yt_dlp_version": getattr(getattr(yt_dlp, "version", None), "__version__", "unknown"),
+        "pot_provider": _check_optional_package("bgutil-ytdlp-pot-provider"),
+        "curl_cffi": _check_optional_package("curl_cffi"),
     }
 
 
