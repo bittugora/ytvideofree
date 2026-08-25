@@ -453,7 +453,7 @@ def _curl_cffi_available() -> bool:
         import curl_cffi  # noqa: F401
 
         return True
-    except ImportError:
+    except Exception:
         return False
 
 
@@ -553,11 +553,15 @@ def default_ydl_opts(*, quiet: bool = True) -> dict[str, Any]:
 
     # Impersonate a real browser's TLS fingerprint to reduce bot checks on
     # flagged datacenter IPs. Requires curl_cffi (auto-installed on first use).
-    if IMPERSONATE_TARGET.lower() != "none":
-        if ensure_curl_cffi():
-            opts["impersonate"] = IMPERSONATE_TARGET.lower()
-        else:
-            logger.warning("curl_cffi unavailable; browser impersonation is disabled.")
+    # yt-dlp >= 2025.06 expects an ImpersonateTarget object, not a string, so
+    # build it explicitly and disable impersonation if the API ever changes.
+    if IMPERSONATE_TARGET.lower() != "none" and ensure_curl_cffi():
+        try:
+            from yt_dlp.networking.impersonate import ImpersonateTarget
+
+            opts["impersonate"] = ImpersonateTarget.from_str(IMPERSONATE_TARGET)
+        except Exception as exc:
+            logger.warning("Browser impersonation could not be configured: %s", exc)
 
     # Enable every available JS runtime so yt-dlp can solve YouTube's
     # anti-bot JS challenges (PO tokens). Without one, YouTube rejects
