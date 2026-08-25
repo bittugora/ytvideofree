@@ -6,11 +6,32 @@
   <h1>{{ title }}</h1>
   <p>
     YouTube periodically answers datacenter/server requests with a bot check
-    ("Sign in to confirm you're not a bot"). yt-dlp needs an external
-    JavaScript runtime to solve those challenges, and a cookies file is the
-    guaranteed fallback for flagged IPs. This page shows whether this server
-    has what it needs.
+    ("Sign in to confirm you're not a bot"). The app works around this by
+    trying a sequence of player clients — the TV client first, which most
+    reliably clears the challenge without an account or cookies. A JavaScript
+    runtime and a cookies file are only needed as a last resort for the web
+    client. This page shows whether this server has what it needs.
   </p>
+
+  <div class="module">
+    <h2>{% translate 'Player clients' %}</h2>
+    <p>
+      yt-dlp {{ yt_dlp_version }} is installed. The player-client groups below
+      are tried in order; the first group YouTube accepts is used. Override the
+      sequence with <code>YTVIDEOFREE_PLAYER_CLIENTS</code>
+      (e.g. <code>tv,web_safari:ios,android</code>).
+    </p>
+    <ol style="margin: 4px 0 0 18px;">
+      {% for group in player_client_groups %}
+        <li><code>{{ group|join:", " }}</code></li>
+      {% endfor %}
+    </ol>
+    <p style="margin-top: 8px;">
+      If every group fails, update yt-dlp to the latest release — YouTube
+      rotates which clients work every few months:
+      <code>pip install -U yt-dlp yt-dlp-ejs</code>.
+    </p>
+  </div>
 
   <div class="module">
     <h2>{% translate 'JavaScript runtimes' %}</h2>
@@ -54,7 +75,7 @@
           {% if ejs_package.installed %}
             installed (v{{ ejs_package.version }}) ✓
           {% else %}
-            <strong style="color: #c7254e;">not installed</strong> — solver scripts will be downloaded from GitHub
+            <strong style="color: #c7254e;">not installed</strong> — auto-installing on first extraction
           {% endif %}
         </td>
       </tr>
@@ -63,15 +84,16 @@
         <td>
           {% if remote_components_enabled %}enabled ✓{% else %}<strong class="deletelink" style="padding-left:0;">disabled</strong>{% endif %}
           <div style="margin-top: 4px; font-size: 0.9em; color: #666;">
-            Allows yt-dlp to fetch challenge-solver scripts from GitHub when
-            the yt-dlp-ejs package is not installed.
+            Fallback: allows yt-dlp to fetch challenge-solver scripts from GitHub
+            when neither the yt-dlp-ejs package nor its cache is available.
           </div>
         </td>
       </tr>
     </table>
     {% if not ejs_package.installed %}
     <p style="margin-top: 8px;">
-      For best performance (no network fetch on first use), install the package:
+      The app auto-installs <code>yt-dlp-ejs</code> on first extraction. If
+      auto-install fails (e.g. no pip on PATH), install manually:
       <code>pip install yt-dlp-ejs</code>
     </p>
     {% endif %}

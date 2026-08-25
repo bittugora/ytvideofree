@@ -1,9 +1,10 @@
 """Admin-only diagnostic page: YouTube bot-check readiness and a live test.
 
-Rendered under /admin/status/ so the operator can see at a glance whether a JS
-runtime (needed by yt-dlp's PO-token solver), ffmpeg, and a cookies file are
-configured, and run a live extraction against a known YouTube video to confirm
-the server's IP is not being bot-checked.
+Rendered under /admin/status/ so the operator can see at a glance the player
+client groups the app will try, whether a JS runtime (needed only for the web
+client's PO-token solver), ffmpeg, and a cookies file are configured, and run a
+live extraction against a known YouTube video to confirm the server's IP is not
+being bot-checked.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from django.http import HttpRequest, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_http_methods
 
+import yt_dlp
 from yt_dlp.utils import DownloadError
 
 from .core.cookiefile import inspect_cookies_file
@@ -26,10 +28,12 @@ from .core.media import (
     _runtime_probe,
     configured_cookies_file,
     discover_runtime_binaries,
+    ensure_ejs_package,
     ensure_js_runtime,
     find_ffmpeg,
     find_js_runtimes,
     inspect_video,
+    player_client_groups,
 )
 from .errors import BOT_CHECK_MESSAGE, clean_error, is_bot_check_error
 
@@ -50,6 +54,9 @@ def _check_ejs_package() -> dict[str, Any]:
 
 
 def _status_context() -> dict[str, Any]:
+    # Try to auto-install yt-dlp-ejs if missing.
+    ensure_ejs_package()
+
     runtimes = find_js_runtimes()
     detected = discover_runtime_binaries()
 
@@ -90,6 +97,8 @@ def _status_context() -> dict[str, Any]:
         "bot_check_message": BOT_CHECK_MESSAGE,
         "ejs_package": _check_ejs_package(),
         "remote_components_enabled": True,
+        "player_client_groups": player_client_groups(),
+        "yt_dlp_version": getattr(getattr(yt_dlp, "version", None), "__version__", "unknown"),
     }
 
 

@@ -8,9 +8,7 @@ NETWORK_BLOCKED_MESSAGE = (
 
 BOT_CHECK_MESSAGE = (
     "YouTube blocked this request with a bot check (“Sign in to confirm you’re not a bot”). "
-    "This is not a problem with the link you pasted. The site operator can fix it by exporting "
-    "browser cookies to a file and setting YTVIDEOFREE_COOKIES_FILE, or by installing a JavaScript "
-    "runtime such as Node.js on the server. Please try again in a little while."
+    "This is not a problem with the link you pasted. Please try again in a little while."
 )
 
 

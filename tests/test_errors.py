@@ -30,7 +30,7 @@ class ErrorHandlingTests(unittest.TestCase):
 
         self.assertTrue(is_bot_check_error(message))
         self.assertEqual(clean_error(Exception(message)), BOT_CHECK_MESSAGE)
-        self.assertIn("YTVIDEOFREE_COOKIES_FILE", BOT_CHECK_MESSAGE)
+        self.assertIn("bot check", BOT_CHECK_MESSAGE.lower())
 
     def test_preserves_normal_errors(self):
         self.assertEqual(clean_error(Exception("Video unavailable")), "Video unavailable")

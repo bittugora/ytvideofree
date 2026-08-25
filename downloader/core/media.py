@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import importlib
+
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
@@ -42,12 +44,38 @@ NODE_VERSION = os.getenv("YTVIDEOFREE_NODE_VERSION", "v22.14.0")
 # Set to "0" to disable auto-downloading a Node.js runtime on bare servers.
 AUTO_DOWNLOAD_RUNTIME = os.getenv("YTVIDEOFREE_AUTO_RUNTIME", "1") != "0"
 
-# Player clients tried when YouTube's bot check blocks the default (web)
-# clients. These do not require PO tokens, so they bypass the
-# "Sign in to confirm you're not a bot" block from flagged IPs without cookies.
-# ``android_vr`` and ``tv_downgraded`` are excluded because while they can
-# extract metadata, their download URLs return HTTP 403 from YouTube's CDN.
-FALLBACK_PLAYER_CLIENTS = ("android", "mweb")
+# YouTube runs many playback clients (web, Android, iOS, TV, ...) and trusts
+# each one to a different degree. The ``tv`` (television) client is the least
+# scrutinised and the one that most reliably clears the "Sign in to confirm
+# you're not a bot" challenge from datacenter/VPS IPs without an account or
+# cookies; ``web_safari`` is its recommended companion. Each group below is
+# tried in its own YoutubeDL run, in order, so a rejected group falls through
+# to the next one — no cookies or user sign-in required.
+#
+# Override the whole sequence with YTVIDEOFREE_PLAYER_CLIENTS: a
+# comma-separated list of groups, where ":" joins clients inside one group.
+# Example: "tv:web_safari,ios:android,mweb,tv_embedded,web"
+DEFAULT_PLAYER_CLIENT_GROUPS = (
+    ("tv", "web_safari"),
+    ("ios", "android"),
+    ("mweb", "web_embedded"),
+    ("tv_embedded",),
+    ("web",),
+)
+
+
+def player_client_groups() -> tuple[tuple[str, ...], ...]:
+    """Return the ordered player-client groups to try, from config or defaults."""
+    configured = os.getenv("YTVIDEOFREE_PLAYER_CLIENTS")
+    if configured:
+        groups = tuple(
+            tuple(client.strip() for client in group.split(":") if client.strip())
+            for group in configured.split(",")
+            if group.strip()
+        )
+        if groups:
+            return groups
+    return DEFAULT_PLAYER_CLIENT_GROUPS
 
 YOUTUBE_HOSTS = {
     "youtube.com",
@@ -157,6 +185,7 @@ FALLBACK_MIN_RUNTIME_VERSIONS = {
 # time; the process-local flag avoids re-attempting a failed download forever.
 _runtime_lock = threading.Lock()
 _runtime_download_attempted = False
+_ejs_install_attempted = False
 
 # Probe results are cached per (runtime name, binary path) so requests do not
 # re-run subprocess version probes on every call.
@@ -368,6 +397,49 @@ def ensure_js_runtime() -> Path | None:
         return None
 
 
+def ensure_ejs_package() -> bool:
+    """Install the ``yt-dlp-ejs`` Python package when it is missing.
+
+    yt-dlp's YouTube bot-check solver (EJS) needs two JavaScript scripts:
+    ``yt.solver.core.js`` and ``yt.solver.lib.js``.  Only the core script is
+    vendored inside yt-dlp itself; the lib script is provided by the separate
+    ``yt-dlp-ejs`` package (pypackage source).  Without it the solver falls
+    back to a GitHub download which may fail on firewalled VPS images.
+    Installing the package locally makes the solver work reliably.
+
+    Returns True when the package is (now) available, False on failure.
+    """
+    global _ejs_install_attempted
+
+    # Already present — nothing to do.
+    try:
+        importlib.import_module("yt_dlp_ejs")
+        return True
+    except ImportError:
+        pass
+
+    if _ejs_install_attempted:
+        return False
+    _ejs_install_attempted = True
+
+    logger.info("yt-dlp-ejs package not found; installing via pip...")
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", "yt-dlp-ejs"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=True,
+        )
+        importlib.invalidate_caches()
+        importlib.import_module("yt_dlp_ejs")
+        logger.info("yt-dlp-ejs installed successfully.")
+        return True
+    except Exception as exc:
+        logger.warning("Failed to auto-install yt-dlp-ejs: %s", exc)
+        return False
+
+
 def find_js_runtimes() -> dict[str, dict[str, str]]:
     """Auto-detect JavaScript runtimes for yt-dlp's YouTube JS-challenge solver.
 
@@ -416,6 +488,10 @@ def find_js_runtimes() -> dict[str, dict[str, str]]:
 
 
 def default_ydl_opts(*, quiet: bool = True) -> dict[str, Any]:
+    # Ensure yt-dlp-ejs is installed before building opts.  The solver
+    # scripts must be available for the PO-token challenge to work.
+    ensure_ejs_package()
+
     opts: dict[str, Any] = {
         "cachedir": False,
         "noplaylist": True,
@@ -441,15 +517,14 @@ def default_ydl_opts(*, quiet: bool = True) -> dict[str, Any]:
     # is vendored, so the lib script must come from GitHub.
     opts["remote_components"] = {"ejs:github"}
 
-    # Exclude player clients whose download URLs return HTTP 403 from
-    # YouTube's CDN.  ``android_vr`` and ``tv_downgraded`` can extract
-    # metadata but their byte-transfer URLs are rejected; ``web_creator``
-    # requires authentication.  Only set the player_client list when the
-    # caller hasn't already specified one (e.g. the fallback retry sets its own).
+    # Only set the player_client list when the caller hasn't already specified
+    # one. ``_extract_info``/``download_media`` always override this with each
+    # client group in ``player_client_groups()``; this default keeps the opts
+    # valid when used standalone (e.g. by the admin status live test).
     extractor_args = dict(opts.get("extractor_args") or {})
     yt_args = dict(extractor_args.get("youtube") or {})
     if "player_client" not in yt_args:
-        yt_args["player_client"] = ["web", "android", "mweb"]
+        yt_args["player_client"] = list(player_client_groups()[0])
     extractor_args["youtube"] = yt_args
     opts["extractor_args"] = extractor_args
 
@@ -480,45 +555,72 @@ def configured_cookies_file() -> str | None:
     return str(cookie_path)
 
 
-def _opts_with_fallback_clients(opts: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of opts that uses cookie-free fallback clients.
-
-    The fallback player clients (android, mweb) can extract metadata and
-    download from flagged IPs without PO tokens.
-    """
+def _opts_with_player_clients(
+    opts: dict[str, Any], clients: tuple[str, ...]
+) -> dict[str, Any]:
+    """Return a copy of opts that requests a specific player-client group."""
     opts = dict(opts)
     extractor_args = dict(opts.get("extractor_args") or {})
     extractor_args["youtube"] = {
         **dict(extractor_args.get("youtube") or {}),
-        "player_client": list(FALLBACK_PLAYER_CLIENTS),
+        "player_client": list(clients),
     }
     opts["extractor_args"] = extractor_args
     return opts
 
 
-def _extract_info(clean_url: str, *, download: bool, opts: dict[str, Any]) -> dict[str, Any]:
-    """Run yt-dlp, retrying once with cookie-free fallback clients on a bot check.
+def _should_try_next_client(message: str) -> bool:
+    """Whether a DownloadError should fall through to the next client group.
 
-    When YouTube answers with "Sign in to confirm you're not a bot", the default
-    web clients are blocked. The old JS-less clients (tv_downgraded, android_vr)
-    usually still work from flagged IPs without cookies, so we retry with those
-    before surfacing the friendly error message.
+    Only bot checks, HTTP 403s, and "no usable formats" (e.g. YouTube forcing
+    SABR streaming on a client) are worth retrying with a different client.
+    Real errors — private videos, removed videos, bad URLs — are re-raised.
     """
-    try:
-        with YoutubeDL(opts) as ydl:
-            return ydl.extract_info(clean_url, download=download)
-    except DownloadError as exc:
-        if is_bot_check_error(str(exc)):
-            logger.info("YouTube bot check hit; retrying with fallback player clients.")
-            with YoutubeDL(_opts_with_fallback_clients(opts)) as ydl:
+    normalized = message.lower()
+    return (
+        is_bot_check_error(message)
+        or "http error 403" in normalized
+        or "requested format is not available" in normalized
+        or "no video formats" in normalized
+        or "no formats" in normalized
+    )
+
+
+def _extract_info(clean_url: str, *, download: bool, opts: dict[str, Any]) -> dict[str, Any]:
+    """Run yt-dlp, walking the player-client groups until one is accepted.
+
+    YouTube answers flagged/datacenter IPs with "Sign in to confirm you're not
+    a bot" for some clients and lets others through. The client groups are
+    ordered most-reliable-first (``tv`` + ``web_safari``) so a server can
+    extract metadata without cookies, a JS runtime, or any user sign-in.
+    """
+    last_error: DownloadError | None = None
+    for clients in player_client_groups():
+        try:
+            with YoutubeDL(_opts_with_player_clients(opts, clients)) as ydl:
                 return ydl.extract_info(clean_url, download=download)
-        raise
+        except DownloadError as exc:
+            last_error = exc
+            if not _should_try_next_client(str(exc)):
+                raise
+            logger.info(
+                "YouTube rejected client(s) %s (%s); trying the next group.",
+                ",".join(clients),
+                str(exc)[:160],
+            )
+    raise last_error
 
 
 def inspect_video(url: str) -> dict[str, Any]:
     clean_url = validate_youtube_url(url)
     info = _extract_info(clean_url, download=False, opts=default_ydl_opts())
     return serialize_info(info)
+
+
+def extract_raw_info(url: str) -> dict[str, Any]:
+    """Return yt-dlp's full info dict (subtitles, captions, formats, ...)."""
+    clean_url = validate_youtube_url(url)
+    return _extract_info(clean_url, download=False, opts=default_ydl_opts())
 
 
 def serialize_info(info: dict[str, Any]) -> dict[str, Any]:
@@ -581,18 +683,22 @@ def download_media(url: str, *, mode: str, quality: str = "best", audio_quality:
     else:
         raise ValueError("mode must be either 'video' or 'audio'")
 
-    try:
-        with YoutubeDL(opts) as ydl:
-            ydl.download([clean_url])
-    except DownloadError as exc:
-        if is_bot_check_error(str(exc)):
-            logger.info("YouTube bot check hit during download; retrying with fallback player clients.")
-            with YoutubeDL(_opts_with_fallback_clients(opts)) as ydl:
+    last_error: DownloadError | None = None
+    for clients in player_client_groups():
+        try:
+            with YoutubeDL(_opts_with_player_clients(opts, clients)) as ydl:
                 ydl.download([clean_url])
-        else:
-            raise
-
-    return newest_download(work_dir)
+            return newest_download(work_dir)
+        except DownloadError as exc:
+            last_error = exc
+            if not _should_try_next_client(str(exc)):
+                raise
+            logger.info(
+                "YouTube rejected client(s) %s during download (%s); trying the next group.",
+                ",".join(clients),
+                str(exc)[:160],
+            )
+    raise last_error
 
 
 def newest_download(directory: Path) -> Path:

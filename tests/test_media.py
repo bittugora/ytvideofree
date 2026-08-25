@@ -7,11 +7,12 @@ from yt_dlp.utils import DownloadError
 from downloader.core.media import (
     InvalidYouTubeUrl,
     _extract_info,
-    _opts_with_fallback_clients,
+    _opts_with_player_clients,
     default_ydl_opts,
     extract_video_id,
     find_js_runtimes,
     inspect_video,
+    player_client_groups,
     serialize_info,
     validate_youtube_url,
 )
@@ -76,14 +77,18 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(info["id"], "psVUIguZAQg")
         downloader.extract_info.assert_called_once()
 
-    def test_fallback_clients_option_overrides_player_client(self):
-        opts = _opts_with_fallback_clients(default_ydl_opts())
+    def test_player_clients_option_overrides_player_client(self):
+        opts = _opts_with_player_clients(default_ydl_opts(), ("tv", "web_safari"))
         self.assertEqual(
             opts["extractor_args"]["youtube"]["player_client"],
-            ["android", "mweb"],
+            ["tv", "web_safari"],
         )
 
-    def test_extract_info_retries_with_fallback_clients_on_bot_check(self):
+    def test_default_player_client_groups_lead_with_tv(self):
+        groups = player_client_groups()
+        self.assertEqual(groups[0], ("tv", "web_safari"))
+
+    def test_extract_info_retries_with_next_client_group_on_bot_check(self):
         bot_check = (
             "[youtube] sKNq4CqWkT4: Sign in to confirm you're not a bot. "
             "Use --cookies-from-browser or --cookies for the authentication."
@@ -109,11 +114,11 @@ class MediaTests(unittest.TestCase):
 
         self.assertEqual(result["id"], "sKNq4CqWkT4")
         self.assertEqual(youtube_dl.call_count, 2)
-        # The retry opts request the cookie-free fallback player clients.
+        # The retry opts request the next cookie-free player-client group.
         retry_opts = youtube_dl.call_args_list[1][0][0]
         self.assertEqual(
             retry_opts["extractor_args"]["youtube"]["player_client"],
-            ["android", "mweb"],
+            ["ios", "android"],
         )
 
     def test_extract_info_does_not_retry_for_other_errors(self):
