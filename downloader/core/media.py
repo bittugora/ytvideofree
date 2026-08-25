@@ -594,20 +594,31 @@ def default_ydl_opts(*, quiet: bool = True) -> dict[str, Any]:
 
 
 def configured_cookies_file() -> str | None:
-    """Absolute path of YTVIDEOFREE_COOKIES_FILE, or None when not configured.
+    """Absolute path of the YouTube cookies file, or None when not configured.
 
-    Relative paths resolve against the project root: systemd/gunicorn may start
-    the app from a different working directory, and yt-dlp silently ignores a
-    cookie file it cannot find — which leaves the bot check firing with no hint
-    why.
+    Resolution order:
+      1. ``YTVIDEOFREE_COOKIES_FILE`` (relative paths resolve against the
+         project root).
+      2. A ``cookies.txt`` dropped in the project root — so the operator can
+         deploy a throwaway account's cookies without touching any env vars
+         (important under OpenLiteSpeed/LSAPI, where environment configuration
+         is less convenient than a systemd unit).
+
+    yt-dlp silently ignores a cookie file it cannot find, which leaves the bot
+    check firing with no hint why, so the auto-discovered path is only used
+    when the file actually exists.
     """
     cookies_file = os.getenv("YTVIDEOFREE_COOKIES_FILE")
-    if not cookies_file:
-        return None
-    cookie_path = Path(cookies_file).expanduser()
-    if not cookie_path.is_absolute():
-        cookie_path = ROOT_DIR / cookie_path
-    return str(cookie_path)
+    if cookies_file:
+        cookie_path = Path(cookies_file).expanduser()
+        if not cookie_path.is_absolute():
+            cookie_path = ROOT_DIR / cookie_path
+        return str(cookie_path)
+
+    default = ROOT_DIR / "cookies.txt"
+    if default.is_file():
+        return str(default)
+    return None
 
 
 def _opts_with_player_clients(
